@@ -1,8 +1,9 @@
-# TITAN-preview
+# TITAN
 
-## Multimodal Whole Slide Foundation Model for Pathology
+## A multimodal whole-slide foundation model for pathology
+*Nature Medicine*
 
-[Preprint](https://arxiv.org/abs/2411.19666) | [Download Model](https://huggingface.co/MahmoodLab/TITAN) | [Blog](https://www.linkedin.com/pulse/building-vision-language-guided-multimodal-whole-slide-tong-ding-0hawe/?trackingId=j4u4BgoBSuad2GDEICorkw%3D%3D) | [Cite](#reference)
+[Journal link](https://www.nature.com/articles/s41591-025-03982-3) | [Download Model](https://huggingface.co/MahmoodLab/TITAN) | [Blog](https://www.linkedin.com/pulse/building-vision-language-guided-multimodal-whole-slide-tong-ding-0hawe/?trackingId=j4u4BgoBSuad2GDEICorkw%3D%3D) | [TCGA-UT-8K data](https://huggingface.co/datasets/MahmoodLab/TCGA-Uniform-Tumor-8K) | [Cite](#reference)
 
 
 **Abstract:** The field of computational pathology has been transformed with recent advances in foundation models that encode histopathology region-of-interests (ROIs) into versatile and transferable feature representations via self-supervised learning (SSL). However, translating these advancements to address complex clinical challenges at the patient and slide level remains constrained by limited clinical data in disease-specific cohorts, especially for rare clinical conditions. 
@@ -16,6 +17,7 @@ We propose **TITAN**, a multimodal whole slide foundation model pretrained using
 TITAN also did not use large public histology slide collections such as TCGA, PAIP, CPTAC, PANDA for pretraining, which are routinely used in benchmark development in computational pathology. Therefore, we make TITAN available for the research community in building and evaluating pathology AI models with minimal risk of data contamination on public benchmarks or private histopathology slide collections.
 
 ## Updates
+- **11/05/2025**: TITAN is published in [Nature Medicine](https://www.nature.com/articles/s41591-025-03982-3)! We also release [TCGA-UT-8K](https://huggingface.co/datasets/MahmoodLab/TCGA-Uniform-Tumor-8K) as a pathology ROI classification benchmark for the community to use.
 - **02/14/2025**: TITAN slide feature extraction (along with CONCHv1.5 feature extraction) is integrated into [TRIDENT](https://github.com/mahmoodlab/Trident).
 - **12/04/2024**: CONCHv1.5 feature extraction is integrated into [CLAM](https://github.com/mahmoodlab/CLAM).
 - **12/02/2024**: TITAN preprint and model weights (TITAN-preview and CONCHv1.5) are now live. TCGA-OT splits are available in `./datasets`.
@@ -124,7 +126,7 @@ with open(slide_feature_path, 'rb') as file:
 ```
 
 ### Dataset descriptions
-- **TCGA-UT-8K** is a ROI dataset (8,192 x 8,192 pixels) was curated in consultation with the original TCGA-UT authors and will be released in the coming weeks.
+- **TCGA-UT-8K** is a ROI dataset (8,192 x 8,192 pixels) was curated in consultation with the original TCGA-UT authors. The dataset can now be access [here](https://www.nature.com/articles/s41591-025-03982-3).
 
 - **TCGA-OT** is a slide-level 46-class classification task with 46 classes, according to the OncoTere classification system such that every class is represented by at least 50 samples. It consists of 11,186 formalin-fixed paraffin-embedded (FFPE) WSIs from TCGA and is the largest pan-cancer slide-level classification task publicly available. The splits are released in `./datasets`.
 
@@ -160,17 +162,16 @@ The project was built on top of amazing repositories such as [ViT](https://githu
 ## Reference
 If you find our work useful in your research or if you use parts of this code please consider citing our [paper](https://arxiv.org/abs/2411.19666):
 
-Ding, T.\*, Wagner S.J.\*, Song, A.H.\*, Chen, R.J.\* et al. Multimodal Whole Slide Foundation Model for Pathology, _Arxiv_, 2024
+Ding, T.\*, Wagner S.J.\*, Song, A.H.\*, Chen, R.J.\* et al. A multimodal whole-slide foundation model for pathology, _Nature Medicine_, 2025
 
 ```
-@misc{ding2024titan,
-      title={Multimodal Whole Slide Foundation Model for Pathology}, 
-      author={Tong Ding and Sophia J. Wagner and Andrew H. Song and Richard J. Chen and Ming Y. Lu and Andrew Zhang and Anurag J. Vaidya and Guillaume Jaume and Muhammad Shaban and Ahrong Kim and Drew F. K. Williamson and Bowen Chen and Cristina Almagro-Perez and Paul Doucet and Sharifa Sahai and Chengkuan Chen and Daisuke Komura and Akihiro Kawabe and Shumpei Ishikawa and Georg Gerber and Tingying Peng and Long Phi Le and Faisal Mahmood},
-      year={2024},
-      eprint={2411.19666},
-      archivePrefix={arXiv},
-      primaryClass={eess.IV},
-      url={https://arxiv.org/abs/2411.19666}, 
+@article{ding2025multimodal,
+  title={A multimodal whole-slide foundation model for pathology},
+  author={Ding, Tong and Wagner, Sophia J and Song, Andrew H and Chen, Richard J and Lu, Ming Y and Zhang, Andrew and Vaidya, Anurag J and Jaume, Guillaume and Shaban, Muhammad and Kim, Ahrong and others},
+  journal={Nature Medicine},
+  pages={1--13},
+  year={2025},
+  publisher={Nature Publishing Group US New York}
 }
 ```
 
