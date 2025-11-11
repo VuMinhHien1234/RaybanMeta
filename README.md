@@ -3,7 +3,7 @@
 ## A multimodal whole-slide foundation model for pathology
 *Nature Medicine*
 
-[Journal link](https://www.nature.com/articles/s41591-025-03982-3) | [Download Model](https://huggingface.co/MahmoodLab/TITAN) | [Blog](https://www.linkedin.com/pulse/building-vision-language-guided-multimodal-whole-slide-tong-ding-0hawe/?trackingId=j4u4BgoBSuad2GDEICorkw%3D%3D) | [TCGA-UT-8K data](https://huggingface.co/datasets/MahmoodLab/TCGA-Uniform-Tumor-8K) | [Cite](#reference)
+[Journal link](https://www.nature.com/articles/s41591-025-03982-3) | [Download Model](https://huggingface.co/MahmoodLab/TITAN) | [Blog](https://www.linkedin.com/pulse/building-vision-language-guided-multimodal-whole-slide-tong-ding-0hawe/?trackingId=j4u4BgoBSuad2GDEICorkw%3D%3D) | [TCGA-UT-8K data](https://huggingface.co/datasets/MahmoodLab/TCGA-UniformTumor-8K) | [Cite](#reference)
 
 
 **Abstract:** The field of computational pathology has been transformed with recent advances in foundation models that encode histopathology region-of-interests (ROIs) into versatile and transferable feature representations via self-supervised learning (SSL). However, translating these advancements to address complex clinical challenges at the patient and slide level remains constrained by limited clinical data in disease-specific cohorts, especially for rare clinical conditions. 
@@ -17,7 +17,7 @@ We propose **TITAN**, a multimodal whole slide foundation model pretrained using
 TITAN also did not use large public histology slide collections such as TCGA, PAIP, CPTAC, PANDA for pretraining, which are routinely used in benchmark development in computational pathology. Therefore, we make TITAN available for the research community in building and evaluating pathology AI models with minimal risk of data contamination on public benchmarks or private histopathology slide collections.
 
 ## Updates
-- **11/05/2025**: TITAN is published in [Nature Medicine](https://www.nature.com/articles/s41591-025-03982-3)! We also release [TCGA-UT-8K](https://huggingface.co/datasets/MahmoodLab/TCGA-Uniform-Tumor-8K) as a pathology ROI classification benchmark for the community to use.
+- **11/05/2025**: TITAN is published in [Nature Medicine](https://www.nature.com/articles/s41591-025-03982-3)! We also release [TCGA-UT-8K](https://huggingface.co/datasets/MahmoodLab/TCGA-UniformTumor-8K) as a pathology ROI classification benchmark for the community to use.
 - **02/14/2025**: TITAN slide feature extraction (along with CONCHv1.5 feature extraction) is integrated into [TRIDENT](https://github.com/mahmoodlab/Trident).
 - **12/04/2024**: CONCHv1.5 feature extraction is integrated into [CLAM](https://github.com/mahmoodlab/CLAM).
 - **12/02/2024**: TITAN preprint and model weights (TITAN-preview and CONCHv1.5) are now live. TCGA-OT splits are available in `./datasets`.
@@ -108,7 +108,7 @@ We provide a set of demo notebooks to showcase the capabilities of TITAN. The no
 
 ## Comparisons & Additional Benchmarks 
 
-We provide benchmark numbers on a set of representative tasks. A comprehensive set of benchmarks are in the [paper](https://arxiv.org/abs/2411.19666). The results are with TITAN model and will be updated accordingly with newer iterations of TITAN. For **morphological classification**, the results are reported using *linear probe*. For **slide retrieval**, the results are reported using *Accuracy @K* (At least one of Top-K retrieved slides shares the same diagnostic label as the query) and *MVAccuracy @K* (The majority vote of Top-K retrieved slides is the same diagnostic label as the query).
+We provide benchmark numbers on a set of representative tasks. A comprehensive set of benchmarks are in the [paper](https://www.nature.com/articles/s41591-025-03982-3). The results are with TITAN model and will be updated accordingly with newer iterations of TITAN. For **morphological classification**, the results are reported using *linear probe*. For **slide retrieval**, the results are reported using *Accuracy @K* (At least one of Top-K retrieved slides shares the same diagnostic label as the query) and *MVAccuracy @K* (The majority vote of Top-K retrieved slides is the same diagnostic label as the query).
 
 ### Release of TCGA slide features
 
@@ -126,12 +126,12 @@ with open(slide_feature_path, 'rb') as file:
 ```
 
 ### Dataset descriptions
-- **TCGA-UT-8K** is a ROI dataset (8,192 x 8,192 pixels) was curated in consultation with the original TCGA-UT authors. The dataset can now be access [here](https://www.nature.com/articles/s41591-025-03982-3).
+- **TCGA-UT-8K** is a ROI dataset (8,192 x 8,192 pixels) was curated in consultation with the original TCGA-UT authors. The dataset can now be accessed [here](https://huggingface.co/datasets/MahmoodLab/TCGA-UniformTumor-8K).
 
 - **TCGA-OT** is a slide-level 46-class classification task with 46 classes, according to the OncoTere classification system such that every class is represented by at least 50 samples. It consists of 11,186 formalin-fixed paraffin-embedded (FFPE) WSIs from TCGA and is the largest pan-cancer slide-level classification task publicly available. The splits are released in `./datasets`.
 
 ### Morphological classification
-| Task     | |   TITAN [[1]](https://arxiv.org/abs/2411.19666)      |   PRISM [[2]](https://arxiv.org/abs/2405.10254)     |   Prov-GigaPath [[3]](https://www.nature.com/articles/s41586-024-07441-w) |   CHIEF [[4]](https://www.nature.com/articles/s41586-024-07894-z) |
+| Task     | |   TITAN [[1]](https://www.nature.com/articles/s41591-025-03982-3)     |   PRISM [[2]](https://arxiv.org/abs/2405.10254)     |   Prov-GigaPath [[3]](https://www.nature.com/articles/s41586-024-07441-w) |   CHIEF [[4]](https://www.nature.com/articles/s41586-024-07894-z) |
 |:---------------|:--------------|---------------------------:|-------------------------:|-----------------:|------------------:|
 | *Patch encoder* | |CONCHv1.5 | Virchow | Prov-GigaPath | CTransPath |
 | TCGA-UT-8K <br>(32 classes, Public) | Bal. acc. | **0.832** | 0.774 | 0.700 | 0.625 |
@@ -141,7 +141,7 @@ with open(slide_feature_path, 'rb') as file:
 | Renal allograft AMR <br> (2 classes, internal)| AUROC | **0.915** | 0.820 | 0.836 | 0.813 |
 
 ### Slide retrieval
-| Task     | |   TITAN [[1]](https://arxiv.org/abs/2411.19666)      |   PRISM [[2]](https://arxiv.org/abs/2405.10254)     |   Prov-GigaPath [[3]](https://www.nature.com/articles/s41586-024-07441-w) |   CHIEF [[4]](https://www.nature.com/articles/s41586-024-07894-z) |
+| Task     | |   TITAN [[1]](https://www.nature.com/articles/s41591-025-03982-3)      |   PRISM [[2]](https://arxiv.org/abs/2405.10254)     |   Prov-GigaPath [[3]](https://www.nature.com/articles/s41586-024-07441-w) |   CHIEF [[4]](https://www.nature.com/articles/s41586-024-07894-z) |
 |:---------------|:--------------|---------------------------:|-------------------------:|-----------------:|------------------:|
 | *Patch encoder* | |CONCHv1.5 | Virchow | Prov-GigaPath | CTransPath |
 | TCGA-UT-8K <br>(32 classes, Public) | Acc. @3<br>MVacc. @3 | **0.912**<br>**0.875** | 0.854<br>0.788 | 0.728<br>0.645 | 0.690<br>0.609 |
@@ -157,7 +157,7 @@ with open(slide_feature_path, 'rb') as file:
 The project was built on top of amazing repositories such as [ViT](https://github.com/google-research/big_vision), [iBOT](https://github.com/bytedance/ibot/tree/main), [OpenClip](https://github.com/mlfoundations/open_clip), [LGSSL](https://github.com/mbanani/lgssl),  and [Timm](https://github.com/huggingface/pytorch-image-models/) (ViT model implementation). We thank the authors and developers for their contribution.
 
 ## Reference
-If you find our work useful in your research or if you use parts of this code please consider citing our [paper](https://arxiv.org/abs/2411.19666):
+If you find our work useful in your research or if you use parts of this code please consider citing our [paper](https://www.nature.com/articles/s41591-025-03982-3):
 
 Ding, T.\*, Wagner S.J.\*, Song, A.H.\*, Chen, R.J.\* et al. A multimodal whole-slide foundation model for pathology, _Nature Medicine_, 2025
 
