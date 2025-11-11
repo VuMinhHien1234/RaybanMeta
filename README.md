@@ -42,11 +42,11 @@ pip install -e .
 
 ### 1. Getting access
 
-Request access to the model weights (CONCHv1.5 and TITAN-preview for patch and slide feature extraction, respectively) from the Huggingface model page [here](https://huggingface.co/MahmoodLab/TITAN).
+Request access to the model weights (CONCHv1.5 and TITAN for patch and slide feature extraction, respectively) from the Huggingface model page [here](https://huggingface.co/MahmoodLab/TITAN).
 
 ### 2. Downloading weights + Creating model
 
-Following authentication (using huggingface_hub), both TITAN-preview (slide and language encoders) and CONCH v1.5 (patch encoder) can be automatically downloaded from huggingface model hub as follows. It includes the functionalities to extract slide embeddings from patch embeddings and to perform zero-shot classification. More details can be found in our demo notebooks.
+Following authentication (using huggingface_hub), both TITAN (slide and language encoders) and CONCH v1.5 (patch encoder) can be automatically downloaded from huggingface model hub as follows. It includes the functionalities to extract slide embeddings from patch embeddings and to perform zero-shot classification. More details can be found in our demo notebooks.
 
 ```python
 from huggingface_hub import login
@@ -60,7 +60,7 @@ conch, eval_transform = titan.return_conch()
 
 ### 3. Running Inference
 
-You can directly use TITAN-preview for slide-level feature extraction. TITAN builds a feature grids from CONCH v1.5 patch features using the coordinates and the distance between the patches. As patch coordinates are always saved at the slides' level 0 magnification, TITAN takes patch_size_lv0 which represents the distance between two adjacent patches at level 0 magnification. It is 1024 if slide is 40x, or 512 if slide is 20x. We have this info saved in our demo TCGA features.
+You can directly use TITAN for slide-level feature extraction. TITAN builds a feature grids from CONCH v1.5 patch features using the coordinates and the distance between the patches. As patch coordinates are always saved at the slides' level 0 magnification, TITAN takes patch_size_lv0 which represents the distance between two adjacent patches at level 0 magnification. It is 1024 if slide is 40x, or 512 if slide is 20x. We have this info saved in our demo TCGA features.
 
 We provide two options for TITAN slide feature extraction.
 
@@ -108,11 +108,11 @@ We provide a set of demo notebooks to showcase the capabilities of TITAN. The no
 
 ## Comparisons & Additional Benchmarks 
 
-We provide benchmark numbers on a set of representative tasks. A comprehensive set of benchmarks are in the [paper](https://arxiv.org/abs/2411.19666). The results are with TITAN-preview model and will be updated accordingly with newer iterations of TITAN. For **morphological classification**, the results are reported using *linear probe*. For **slide retrieval**, the results are reported using *Accuracy @K* (At least one of Top-K retrieved slides shares the same diagnostic label as the query) and *MVAccuracy @K* (The majority vote of Top-K retrieved slides is the same diagnostic label as the query).
+We provide benchmark numbers on a set of representative tasks. A comprehensive set of benchmarks are in the [paper](https://arxiv.org/abs/2411.19666). The results are with TITAN model and will be updated accordingly with newer iterations of TITAN. For **morphological classification**, the results are reported using *linear probe*. For **slide retrieval**, the results are reported using *Accuracy @K* (At least one of Top-K retrieved slides shares the same diagnostic label as the query) and *MVAccuracy @K* (The majority vote of Top-K retrieved slides is the same diagnostic label as the query).
 
 ### Release of TCGA slide features
 
-We released all TCGA TITAN-preview features, which can be loaded by
+We released all TCGA TITAN features, which can be loaded by
 
 ```python
 import pickle
@@ -149,9 +149,6 @@ with open(slide_feature_path, 'rb') as file:
 | OT-108 <br>(108 classes, Internal) | Acc. @3<br>MVacc. @3 | **0.707**<br>**0.621** | 0.636<br>0.547 | 0.450<br>0.414 | 0.442<br>0.400 |
 | EBRAINS <br>(30 classes, Public) | Acc. @3<br>MVacc. @3 | **0.865**<br>**0.809** | 0.811<br>0.751 | 0.806<br>0.733 | 0.713<br>0.631 |
 | Renal allograft AMR <br> (2 classes, internal)| Acc. @3<br>MVacc. @3 | **0.919**<br>**0.785** | 0.887<br>0.666 | 0.857<br>0.630 | 0.848<br>0.646 |
-
-## What next?
-TITAN-preview shows just a glimpse of the envisioned final TITAN model, as the model can be easily scaled. More WSIs are being digitized and the synthetic caption generation with the multimodal copilot is basically unlimited, all of which can be incorporated into TITAN's pretraining pipeline. Stay tuned for more updates! 
 
 ## License and Terms of use
 ⓒ Mahmood Lab. This model and associated code are released under the [CC-BY-NC-ND 4.0]((https://creativecommons.org/licenses/by-nc-nd/4.0/deed.en)) license and may only be used for non-commercial, academic research purposes with proper attribution. Any commercial use, sale, or other monetization of the TITAN model and its derivatives, which include models trained on outputs from the TITAN model or datasets created from the TITAN model, is prohibited and requires prior approval. Downloading the model requires prior registration on Hugging Face and agreeing to the terms of use. By downloading this model, you agree not to distribute, publish or reproduce a copy of the model. If another user within your organization wishes to use the TITAN model, they must register as an individual user and agree to comply with the terms of use. Users may not attempt to re-identify the deidentified data used to develop the underlying model. If you are a commercial entity, please contact the corresponding author or Mass General Brigham Innovation Office.
