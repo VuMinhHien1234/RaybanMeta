@@ -1,0 +1,18 @@
+# --- Runtime deps (install AFTER torch; see README bước 3) ---
+# NOTE: torch is intentionally NOT listed here. Install it per-platform first
+# (macOS vs Linux/CUDA differ), then run: pip install -r requirements.txt
+timm>=1.0.3
+titans-pytorch
+einops>=0.8
+datasets>=2.14        # HuggingFace — tải RESISC45 (G1)
+pillow>=9.0
+numpy>=1.24
+scipy>=1.10
+scikit-learn>=1.3
+pandas>=2.0
+pyyaml>=6.0
+tqdm>=4.66
+matplotlib>=3.7
+pytest>=7.4
+# Optional (G1 baselines) — uncomment if you use the Avalanche CL library:
+# avalanche-lib>=0.5

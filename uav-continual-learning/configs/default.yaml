@@ -1,0 +1,36 @@
+# Shared config contract for the whole team. Fill in during G1+.
+seed: 0
+device: auto            # auto | cpu | cuda | mps
+
+data:
+  name: resisc45        # ĐÃ CHỐT G1: NWPU-RESISC45 (45 class ảnh trên không, HF timm/resisc45)
+  root: ./data
+  task_stream:          # class-incremental split (G1, N1) — xem configs/g1_*.yaml
+    num_tasks: 9        # 9 task x 5 class
+    classes_per_task: 5
+  image_size: 224
+  batch_size: 32
+
+backbone:               # G1, N3
+  name: vit_small_patch16_224
+  pretrained: true
+  feature_dim: 384
+
+memory:                 # G2, N2 (Titans neural memory)
+  enabled: false
+  dim: 384
+  chunk_size: 64
+
+cms:                    # G3, N2+N3 (Continuum Memory System)
+  enabled: false
+  # [num_layers, update_period] per tier (see obekt cms_tiers)
+  tiers: [[6, 1], [4, 4], [2, 16]]
+
+train:                  # shared training/eval loop
+  epochs_per_task: 5
+  lr: 0.0003
+  optimizer: adamw      # adamw | muon | m3 (G4)
+
+log:
+  backend: json         # json | wandb
+  dir: ./artifacts/logs
