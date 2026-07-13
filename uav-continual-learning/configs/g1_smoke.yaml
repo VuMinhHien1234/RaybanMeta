@@ -1,0 +1,34 @@
+# G1 — smoke test: dữ liệu giả + CNN bé, chạy CPU ~1 phút, không cần mạng.
+# Mục đích duy nhất: chứng minh cả pipeline (stream -> train -> R -> metrics) chạy.
+seed: 0
+device: cpu
+
+data:
+  name: synthetic
+  num_classes: 6
+  train_per_class: 24
+  val_per_class: 8
+  test_per_class: 8
+  split_seed: 0
+  num_tasks: 3
+  shuffle_classes: true
+  image_size: 32
+  batch_size: 16
+  num_workers: 0
+
+backbone:
+  name: tinycnn
+  pretrained: false
+
+train:
+  method: finetune         # finetune | ewc | ncm
+  epochs_per_task: 2
+  lr: 0.003
+  weight_decay: 0.0
+
+ewc:
+  ewc_lambda: 100.0
+  max_batches: 10
+
+log:
+  dir: ./artifacts

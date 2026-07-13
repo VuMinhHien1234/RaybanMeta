@@ -1,0 +1,33 @@
+# G1 — dataset chính: NWPU-RESISC45 (31.500 ảnh trên không, 45 class)
+# Tự tải từ HuggingFace (~426MB) vào data/hf_cache ở lần chạy đầu.
+# 45 class -> 9 task x 5 class: stream đủ dài để thấy quên rõ.
+seed: 0
+device: auto
+
+data:
+  name: resisc45
+  hf_repo: timm/resisc45
+  root: ./data
+  num_tasks: 9
+  shuffle_classes: true
+  image_size: 224          # khớp ViT pretrained
+  batch_size: 32
+  num_workers: 2
+
+backbone:
+  name: vit_small_patch16_224
+  pretrained: true
+  freeze: false            # full fine-tune; đặt true nếu chỉ muốn train head (nhanh hơn nhiều)
+
+train:
+  method: finetune         # finetune | ewc | ncm (CLI --method sẽ đè; ncm bỏ qua epochs/lr)
+  epochs_per_task: 3
+  lr: 0.0001
+  weight_decay: 0.01
+
+ewc:
+  ewc_lambda: 1000.0       # núm chính của EWC — thử 100 / 1000 / 10000
+  max_batches: 50
+
+log:
+  dir: ./artifacts

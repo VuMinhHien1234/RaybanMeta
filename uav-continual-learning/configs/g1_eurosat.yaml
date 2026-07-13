@@ -1,0 +1,33 @@
+# G1 — dataset nhẹ: EuroSAT (27.000 ảnh vệ tinh 64x64, 10 class)
+# torchvision tự tải (~90MB). 10 class -> 5 task x 2 class.
+# Dùng để chạy nhanh cả pipeline / debug trước khi tốn thời gian vào RESISC45.
+seed: 0
+device: auto
+
+data:
+  name: eurosat
+  root: ./data
+  split_seed: 0            # tách 80/10/10 (không có split chính thức)
+  num_tasks: 5
+  shuffle_classes: true
+  image_size: 64           # giữ 64 cho nhanh; resnet chấp nhận mọi size
+  batch_size: 128
+  num_workers: 2
+
+backbone:
+  name: resnet18           # nhẹ + không kén image_size như ViT
+  pretrained: true
+  freeze: false
+
+train:
+  method: finetune         # finetune | ewc | ncm
+  epochs_per_task: 3
+  lr: 0.0003
+  weight_decay: 0.01
+
+ewc:
+  ewc_lambda: 1000.0
+  max_batches: 50
+
+log:
+  dir: ./artifacts
