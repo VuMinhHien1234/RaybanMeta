@@ -1,27 +1,33 @@
-"""Các "method" học liên tục của G1 (baseline). Giao diện tối giản:
+"""Các "method" học liên tục của G1 (baseline). Giao diện (hook) chung:
 
-    method.penalty(model)                  -> tensor | None  (cộng vào loss)
-    method.end_task(model, loader, ...)    -> gọi SAU KHI học xong mỗi task
+    method.begin_task(model, device, allowed)          -> gọi TRƯỚC KHI train task
+    method.penalty(model)                              -> tensor | None (regularizer tham số, vd EWC)
+    method.extra_batch_loss(model, x, logits_full, device)
+                                                       -> tensor | None (loss thêm theo batch, vd Replay/LwF)
+    method.end_task(model, loader, device, allowed)    -> gọi SAU KHI học xong task
+    method.footprint_floats(model)                     -> bộ nhớ THÊM (số float) method tích luỹ
 
 G2–G4 (Titans/CMS/HOPE) thay đổi *kiến trúc model*, còn baseline G1 thay đổi
 *cách train* — vì vậy chúng nằm ở đây, tách khỏi models/.
 
+5 baseline (đúng danh sách trong Team_Plan G1: naive/EWC/replay/LwF + NCM bổ sung):
 - FineTune : không làm gì -> mốc dưới, dự kiến quên nặng nhất.
-- EWC      : Elastic Weight Consolidation (Kirkpatrick et al., 2017).
-             Sau mỗi task, ước lượng độ quan trọng từng tham số bằng
-             Fisher chéo (bình phương gradient), rồi phạt việc kéo các
-             tham số quan trọng rời xa giá trị cũ:
-                 L = CE + (lambda/2) * sum_i F_i * (theta_i - theta*_i)^2
+- EWC      : Kirkpatrick et al., 2017 — Fisher chéo phạt kéo tham số quan trọng
+             rời xa giá trị cũ:  L = CE + (λ/2)·Σ F_i (θ_i − θ*_i)².
+- Replay   : giữ một buffer nhỏ ảnh cũ (quota mỗi class); mỗi bước train cộng
+             thêm CE trên mini-batch lấy từ buffer -> "ôn bài" chống quên.
+             Baseline kinh điển mạnh nhất; chi phí = RAM lưu ảnh.
+- LwF      : Learning-without-Forgetting (Li & Hoiem, 2016) — trước mỗi task
+             chụp teacher (bản sao model cũ, đóng băng); khi train ép logits
+             của class CŨ bám theo teacher (KL, temperature T) -> không cần dữ liệu cũ.
 - NCM      : gradient-free — backbone đóng băng + prototype trung bình mỗi
-             class (xem models/ncm.py). Baseline "đơn giản mà khó thắng":
-             kỳ vọng gần như KHÔNG quên. Titans/CMS phải vượt cả nó.
-
-Mỗi method có footprint_floats(model): bộ nhớ THÊM (số float) mà method
-tích luỹ qua stream — để so chi phí, không chỉ so accuracy.
+             class (models/ncm.py). "Đơn giản mà khó thắng": gần như KHÔNG quên.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence
+import copy
+import random
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -36,7 +42,13 @@ class FineTune:
     def __init__(self, **_):
         pass
 
+    def begin_task(self, model, device, allowed: Sequence[int]) -> None:
+        pass
+
     def penalty(self, model) -> Optional[torch.Tensor]:
+        return None
+
+    def extra_batch_loss(self, model, x, logits_full, device) -> Optional[torch.Tensor]:
         return None
 
     @torch.no_grad()
@@ -106,6 +118,97 @@ class EWC(FineTune):
         )
 
 
+class Replay(FineTune):
+    """Experience replay: buffer ảnh cũ (quota mỗi class) + CE "ôn bài" mỗi bước.
+
+    Ảnh lưu ở CPU dạng float16 để tiết kiệm RAM (224² ~ 0.3MB/ảnh;
+    RESISC45 45 class x 20 ảnh ~ 270MB). Chỉnh `buffer_per_class` theo máy.
+    """
+
+    name = "replay"
+
+    def __init__(self, buffer_per_class: int = 20, replay_batch: int = 32,
+                 weight: float = 1.0, seed: int = 0, **_):
+        self.buffer_per_class = int(buffer_per_class)
+        self.replay_batch = int(replay_batch)
+        self.weight = float(weight)
+        self._rng = random.Random(seed)
+        self._buf: List[Tuple[torch.Tensor, int]] = []  # (ảnh float16 CPU, nhãn)
+        self._seen: List[int] = []                       # class đã có trong buffer
+
+    @torch.no_grad()
+    def end_task(self, model, loader, device, allowed: Sequence[int]) -> None:
+        """Sau khi học task: lưu tối đa buffer_per_class ảnh mỗi class mới vào buffer."""
+        quota = {int(c): self.buffer_per_class for c in allowed}
+        for x, y in loader:
+            for i in range(len(y)):
+                c = int(y[i])
+                if quota.get(c, 0) > 0:
+                    self._buf.append((x[i].detach().to(torch.float16).cpu(), c))
+                    quota[c] -= 1
+            if all(v == 0 for v in quota.values()):
+                break
+        self._seen = sorted(set(self._seen) | {int(c) for c in allowed})
+
+    def extra_batch_loss(self, model, x, logits_full, device) -> Optional[torch.Tensor]:
+        # Task đầu tiên: buffer chứa toàn class đang học -> không cần ôn.
+        if not self._buf or len(set(c for _, c in self._buf)) <= 0:
+            return None
+        idx = [self._rng.randrange(len(self._buf)) for _ in range(min(self.replay_batch, len(self._buf)))]
+        xs = torch.stack([self._buf[i][0] for i in idx]).float().to(device)
+        ys = torch.tensor([self._buf[i][1] for i in idx], dtype=torch.long, device=device)
+        logits = mask_logits(model(xs), self._seen)
+        return self.weight * F.cross_entropy(logits, ys)
+
+    def footprint_floats(self, model) -> int:
+        return sum(x.numel() for x, _ in self._buf)  # (lưu float16 — đếm theo phần tử)
+
+
+class LwF(FineTune):
+    """Learning without Forgetting: distillation từ teacher = model TRƯỚC task hiện tại.
+
+    Không lưu dữ liệu cũ; chỉ ép phân phối logits trên các class CŨ đứng yên:
+        L = CE(task mới) + λ · T² · KL( student(x)/T || teacher(x)/T ) trên cột class cũ.
+    """
+
+    name = "lwf"
+
+    def __init__(self, lwf_lambda: float = 1.0, temperature: float = 2.0, **_):
+        self.lwf_lambda = float(lwf_lambda)
+        self.temperature = float(temperature)
+        self._teacher = None
+        self._old_classes: List[int] = []
+
+    def begin_task(self, model, device, allowed: Sequence[int]) -> None:
+        """Trước task mới (trừ task đầu): chụp bản sao model làm teacher, đóng băng."""
+        if self._old_classes:
+            self._teacher = copy.deepcopy(model).to(device)
+            self._teacher.eval()
+            for p in self._teacher.parameters():
+                p.requires_grad_(False)
+        else:
+            self._teacher = None
+
+    def extra_batch_loss(self, model, x, logits_full, device) -> Optional[torch.Tensor]:
+        if self._teacher is None:
+            return None
+        with torch.no_grad():
+            t_logits = self._teacher(x)
+        idx = torch.as_tensor(self._old_classes, dtype=torch.long, device=logits_full.device)
+        T = self.temperature
+        p_teacher = F.softmax(t_logits[:, idx] / T, dim=1)
+        log_p_student = F.log_softmax(logits_full[:, idx] / T, dim=1)
+        return self.lwf_lambda * (T * T) * F.kl_div(log_p_student, p_teacher, reduction="batchmean")
+
+    @torch.no_grad()
+    def end_task(self, model, loader, device, allowed: Sequence[int]) -> None:
+        self._old_classes = sorted(set(self._old_classes) | {int(c) for c in allowed})
+
+    def footprint_floats(self, model) -> int:
+        # trong lúc train giữ 1 bản sao model (teacher)
+        return sum(p.numel() for p in self._teacher.parameters()) if self._teacher is not None else 0
+
+
 class NCM(FineTune):
     """Gradient-free: chỉ trích đặc trưng và cập nhật prototype (models/ncm.py)."""
 
@@ -125,7 +228,7 @@ class NCM(FineTune):
         return int(model.extra_floats()) if hasattr(model, "extra_floats") else 0
 
 
-_METHODS = {"finetune": FineTune, "ewc": EWC, "ncm": NCM}
+_METHODS = {"finetune": FineTune, "ewc": EWC, "replay": Replay, "lwf": LwF, "ncm": NCM}
 
 
 def build_method(name: str, cfg: dict) -> FineTune:

@@ -80,14 +80,14 @@ pip install -e .                 # cài `uavcl` ở chế độ editable
 python scripts/check_env.py       # mọi dòng nên là [OK]
 python scripts/smoke_titans.py    # -> [OK] NeuralMemory forward ... backward ok
 python scripts/smoke_backbone.py  # -> [OK] features ... -> embedding ...
-pytest -q                         # -> 16 passed (13 nếu chưa cài torch)
+pytest -q                         # -> 20 passed (15 nếu chưa cài torch)
 ```
 `check_env.py` và `pytest` đã được xác minh chạy đúng. Hai smoke test cần torch nên chỉ chạy
 sau bước 3–4 (chúng tự báo `[SKIP]` kèm hướng dẫn nếu thiếu thư viện).
 
 ## Ai sở hữu phần nào (map với `Team_Plan_3nguoi.md`)
 - `src/uavcl/data/` → **N1** (G1): tách task stream + loader tuần tự.
-- `src/uavcl/metrics/` → **N1**: đã có `average_accuracy`, `backward_transfer`, `average_forgetting`.
+- `src/uavcl/metrics/` → **N1**: đã có `average_accuracy`, `backward_transfer`, `average_forgetting`, `forward_transfer` + bộ open-set (AUC/EER/TAR@FAR).
 - `src/uavcl/models/backbone.py` → **N3** (G1): ảnh → chuỗi đặc trưng.
 - `src/uavcl/models/memory.py` → **N2** (G2): bọc `NeuralMemory` của Titans.
 - `src/uavcl/models/cms.py` → **N2 + N3** (G3 ⭐): khối MLP đa tần số retrofit lên backbone.
@@ -106,39 +106,42 @@ thấy class của t; eval sau task t chấm trên *mọi* class đã thấy (ma
 ```bash
 # 0) pipeline có chạy không? (~1 phút, CPU, không cần mạng)
 python scripts/run_g1.py --config configs/g1_smoke.yaml
-pytest -q                                   # giờ phải là: 12 passed (khi có torch)
+pytest -q                                   # giờ phải là: 20 passed (khi có torch)
 
-# 1) bộ nhẹ trước (EuroSAT, resnet18) — 3 baseline
-python scripts/run_g1.py --config configs/g1_eurosat.yaml --method finetune
-python scripts/run_g1.py --config configs/g1_eurosat.yaml --method ewc
-python scripts/run_g1.py --config configs/g1_eurosat.yaml --method ncm    # gradient-free, rất nhanh
+# 1) bộ nhẹ trước (EuroSAT, resnet18) — đủ 5 baseline theo Team_Plan G1
+for m in finetune ewc replay lwf ncm; do
+  python scripts/run_g1.py --config configs/g1_eurosat.yaml --method $m
+done
 
 # 2) bảng số mốc chính (RESISC45, ViT-S) — cần GPU thì mới nhanh (ncm thì CPU cũng ổn)
-python scripts/run_g1.py --config configs/g1_resisc45.yaml --method finetune
-python scripts/run_g1.py --config configs/g1_resisc45.yaml --method ewc
-python scripts/run_g1.py --config configs/g1_resisc45.yaml --method ncm
+for m in finetune ewc replay lwf ncm; do
+  python scripts/run_g1.py --config configs/g1_resisc45.yaml --method $m
+done
 
 # 3) gộp thành bảng baseline (artifacts/results/baseline_table.md)
 python scripts/compare_g1.py
 ```
 Chỉnh nhanh không sửa file: `--set train.lr=5e-5 data.num_tasks=5 backbone.freeze=true`.
 
-**Kỳ vọng đọc số:** finetune quên nặng (Average Forgetting cao, BWT âm sâu); EWC đỡ hơn
-một phần; **NCM (backbone đóng băng + prototype) gần như KHÔNG quên** — bài học lấy từ
-project Meta-Rayban/CPM: trên đặc trưng đóng băng, forgetting gần như biến mất. Vì vậy NCM
-là baseline "khó chịu" nhất: từ G2 (Titans) và G3 (CMS), model phải thắng **cả 3 dòng này**
-— hoặc chỉ ra chỗ NCM gãy (accuracy trần thấp khi feature pretrained không đủ tách class
-UAV, domain shift mạnh) — thì dự án mới có ý nghĩa. Bảng so sánh đã kèm **chi phí**
-(`trainable_params`, `method_extra_floats`): cùng accuracy thì method rẻ hơn thắng
-(EWC phình 2×P mỗi task; NCM bị chặn C×D).
+**Kỳ vọng đọc số (5 baseline):** finetune quên nặng nhất (Forgetting cao, BWT âm sâu);
+LwF đỡ một phần (không cần dữ liệu cũ); EWC đỡ một phần (phạt tham số); **replay thường là
+baseline kinh điển MẠNH NHẤT** (ôn lại ảnh cũ trực tiếp); **NCM (backbone đóng băng +
+prototype) gần như KHÔNG quên** — bài học lấy từ project Meta-Rayban/CPM: trên đặc trưng
+đóng băng, forgetting gần như biến mất. Vì vậy replay và NCM là 2 baseline "khó chịu" nhất:
+từ G2 (Titans) và G3 (CMS), model phải thắng **cả 5 dòng này** — hoặc chỉ ra chỗ chúng gãy
+(NCM: feature không đủ tách class mới / domain shift; replay: tốn RAM lưu ảnh + vấn đề
+riêng tư) — thì dự án mới có ý nghĩa. Bảng so sánh đã kèm **chi phí** (`trainable_params`,
+`method_extra_floats`): cùng accuracy thì method rẻ hơn thắng (EWC phình 2×P mỗi task;
+replay phình theo buffer; LwF giữ 1 bản teacher lúc train; NCM bị chặn C×D).
+FWT (forward transfer) đo được khi bật `train.eval_future: true`.
 
 ## Checklist G1
-- [ ] Cả 3 máy: `pytest -q` -> 16 passed; `run_g1.py --config configs/g1_smoke.yaml` chạy hết.
-- [ ] N1: chạy EuroSAT (finetune + ewc + ncm), đọc hiểu `acc_matrix.csv` (hàng i = sau khi học task i).
-- [ ] N3: chạy RESISC45 (finetune + ewc + ncm); thử `backbone.freeze=true` vs `false`, ghi lại thời gian.
-- [ ] N2: đọc `engine.py` + `methods.py` (giao diện `penalty`/`end_task`/`fit_task`) — G2 sẽ cắm Titans vào đúng khung này; tinh chỉnh `ewc_lambda` (100/1000/10000). Tham khảo delta-rule đa tầng viết sẵn rất dễ đọc: `Meta-Rayban/cpm/memory.py` (TierMemory).
-- [ ] Cả team: `compare_g1.py` ra bảng ≥ 6 dòng (2 dataset x 3 method) -> **cổng G1 đạt**.
-- [ ] Thảo luận: NCM đứng ở đâu? Nếu NCM ~ finetune-full về accuracy và không quên -> luận điểm G2/G3 phải nhắm vào chỗ NCM yếu (feature không đủ tách class mới / thích nghi domain shift).
+- [ ] Cả 3 máy: `pytest -q` -> 20 passed; `run_g1.py --config configs/g1_smoke.yaml` chạy hết.
+- [ ] N1: chạy EuroSAT đủ 5 method, đọc hiểu `acc_matrix.csv` (hàng i = sau khi học task i); bật thử `train.eval_future=true` để có FWT.
+- [ ] N3: chạy RESISC45 đủ 5 method; thử `backbone.freeze=true` vs `false`, ghi lại thời gian.
+- [ ] N2: tinh chỉnh núm của 3 baseline chống quên: `ewc_lambda` (100/1000/10000), `replay.buffer_per_class` (5/20/50), `lwf_lambda` (0.5/1/2); đọc `engine.py` + `methods.py` (hook `begin_task`/`penalty`/`extra_batch_loss`/`end_task`) — G2 sẽ cắm Titans vào đúng khung này. Tham khảo delta-rule đa tầng dễ đọc: `Meta-Rayban/cpm/memory.py` (TierMemory).
+- [ ] Cả team: `compare_g1.py` ra bảng ≥ 10 dòng (2 dataset x 5 method) -> **cổng G1 đạt** (plan yêu cầu ≥3 baseline ổn định).
+- [ ] Thảo luận: replay & NCM đứng ở đâu? Nếu NCM ~ finetune-full về accuracy và không quên -> luận điểm G2/G3 phải nhắm vào chỗ chúng yếu (feature không đủ tách class mới / thích nghi domain shift / chi phí bộ nhớ).
 
 ## Checklist G0 (đánh dấu khi xong)
 - [ ] N1: repo + môi trường chung chạy; `check_env.py` toàn `[OK]`; chốt shortlist dataset.

@@ -44,6 +44,10 @@
 **Kết quả cần đạt:** bảng baseline (naive/EWC/replay/LwF) với Avg Acc + Forgetting; harness tái sử dụng cho mọi giai đoạn sau; seed cố định, số liệu tái lập.
 **Cổng chuyển:** có ít nhất 3 baseline chạy ổn định + bảng số so sánh được.
 
+> **✅ Trạng thái G1 (cập nhật 2026-07-14): CODE XONG — CHỜ CHẠY LẤY SỐ.**
+> Đã có trong `uav-continual-learning/`: dataset chốt **RESISC45** (9 task x 5 class, tự tải HF) + EuroSAT (debug) + synthetic (smoke); loader stream + vòng train/eval per-task; metrics đủ (Avg Acc / Forgetting / BWT / **FWT** + open-set AUC/EER/TAR@FAR); **5 method**: naive fine-tune, EWC, **replay buffer**, **LwF**, NCM-frozen (bổ sung, bài học từ project CPM) — kèm đo chi phí bộ nhớ từng method. Test: 20 passed. Xem README mục G1 (lệnh chạy 1 dòng cho cả 5 method).
+> **Việc còn lại để qua cổng:** chạy trên máy có torch/GPU -> `compare_g1.py` ra bảng ≥ 2 dataset x 5 method; N2 tinh chỉnh λ/buffer; cả team đọc bảng và ghi kết luận (finetune quên bao nhiêu, replay/NCM mạnh tới đâu).
+
 ## G2 — Tích hợp bộ nhớ Titans (2–4 tuần)
 **Mục tiêu:** lần đầu đưa ý tưởng paper vào pipeline UAV; lấy tín hiệu đầu tiên.
 
@@ -52,6 +56,7 @@
 - **N1:** chạy thí nghiệm Titans qua harness; đo vs baseline; quản lý experiment tracking + biểu đồ.
 
 **Kết quả cần đạt:** model "backbone + Titans" chạy end-to-end trên stream UAV; **bảng số Titans vs baseline**; kết luận sơ bộ (giúp/không giúp, ở đâu).
+
 **Cổng chuyển:** pipeline Titans chạy end-to-end + có số so với baseline (kể cả kết quả âm cũng chấp nhận, miễn giải thích được).
 
 ## G3 — Retrofit CMS vào backbone (2–4 tuần) ⭐ mấu chốt
@@ -88,7 +93,6 @@
 - **N1:** viết phần thí nghiệm/kết quả, gom số liệu.
 - **N2:** viết phần phương pháp (NL/Titans/CMS/HOPE cho UAV).
 - **N3:** viết phần liên quan + **phụ lục tái lập**; dọn repo, README, script one-click tái lập.
-
 **Kết quả cần đạt:** báo cáo/notebook tái lập; repo sạch có hướng dẫn; (tùy chọn) bản nháp paper.
 
 ---

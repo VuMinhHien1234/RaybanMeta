@@ -29,7 +29,9 @@ def roc_points(genuine, impostor, n: int = 300):
 
 def auc(far: np.ndarray, tar: np.ndarray) -> float:
     order = np.argsort(far)
-    integrate = getattr(np, "trapezoid", np.trapz)  # numpy mới/cũ
+    integrate = getattr(np, "trapezoid", None)  # numpy >= 2.0
+    if integrate is None:
+        integrate = np.trapz  # numpy 1.x (trapz bị xoá ở 2.0)
     return float(integrate(tar[order], far[order]))
 
 
