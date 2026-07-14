@@ -29,6 +29,22 @@ def backward_transfer(R) -> float:
     return float(np.mean(diffs))
 
 
+def forward_transfer(R, chance: float = 0.0) -> float:
+    """FWT (GEM-style): mean over j>=1 of ``R[j-1, j] - chance``.
+
+    ``R[j-1, j]`` = accuracy trên task j NGAY TRƯỚC khi học nó (cần engine bật
+    ``train.eval_future: true`` để ô này được đo; mặc định engine chỉ điền tam
+    giác dưới). Với head phân loại khởi tạo mới, FWT thường xấp xỉ mức đoán mò
+    (``chance``) — metric này chủ yếu có ý nghĩa từ G2+ khi model mang bộ nhớ.
+    """
+    R = np.asarray(R, dtype=float)
+    T = R.shape[0]
+    if T < 2:
+        return 0.0
+    vals = [R[j - 1, j] - chance for j in range(1, T)]
+    return float(np.mean(vals))
+
+
 def average_forgetting(R) -> float:
     """Average forgetting: mean drop from each task's best-ever accuracy to its final
     accuracy (lower = better; this is the headline number the project tries to reduce)."""

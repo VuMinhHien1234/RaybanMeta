@@ -42,10 +42,8 @@ def main() -> int:
     method_name = (args.method or cfg.get("train", {}).get("method", "finetune")).lower()
     seed = int(cfg.get("seed", 0))
     seed_everything(seed)
-
-    # --- torch-dependent imports sau khi đã đọc config (báo lỗi dễ hiểu hơn) ---
     try:
-        import torch  # noqa: F401
+        import torch  
     except ImportError:
         print("[ERR] Chưa có torch — xem README bước 3 để cài đúng nền tảng.")
         return 1
@@ -53,7 +51,7 @@ def main() -> int:
     from uavcl.data.loaders import build_task_loaders
     from uavcl.engine import resolve_device, run_continual
     from uavcl.methods import build_method
-    from uavcl.metrics import average_accuracy, average_forgetting, backward_transfer
+    from uavcl.metrics import average_accuracy, average_forgetting, backward_transfer, forward_transfer
     from uavcl.models import ContinualClassifier, build_backbone
 
     device = resolve_device(cfg.get("device", "auto"))
@@ -97,6 +95,8 @@ def main() -> int:
         "average_accuracy": average_accuracy(R),
         "average_forgetting": average_forgetting(R),
         "backward_transfer": backward_transfer(R),
+        # FWT chỉ có nghĩa khi bật train.eval_future (đo acc task kế tiếp TRƯỚC khi học)
+        "forward_transfer": forward_transfer(R) if cfg["train"].get("eval_future", False) else None,
         # chi phí — so cùng accuracy thì method rẻ hơn thắng:
         "trainable_params": int(sum(p.numel() for p in model.parameters() if p.requires_grad)),
         "method_extra_floats": int(method.footprint_floats(model)),

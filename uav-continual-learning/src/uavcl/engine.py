@@ -54,6 +54,7 @@ def train_one_task(model, method, loader, device, allowed: Sequence[int], train_
     # Optimizer tạo MỚI cho mỗi task (không mang moment cũ sang môi trường mới).
     opt = torch.optim.AdamW((p for p in model.parameters() if p.requires_grad), lr=lr, weight_decay=wd)
 
+    method.begin_task(model, device, allowed)  # vd LwF chụp teacher tại đây
     losses = []
     model.train()
     for ep in range(epochs):
@@ -61,11 +62,15 @@ def train_one_task(model, method, loader, device, allowed: Sequence[int], train_
         bar = tqdm(loader, desc=f"  epoch {ep + 1}/{epochs}", leave=False)
         for x, y in bar:
             x, y = x.to(device), y.to(device)
-            logits = mask_logits(model(x), allowed)
+            logits_full = model(x)
+            logits = mask_logits(logits_full, allowed)
             loss = F.cross_entropy(logits, y)
-            pen = method.penalty(model)
+            pen = method.penalty(model)                                # EWC: phạt tham số
             if pen is not None:
                 loss = loss + pen
+            extra = method.extra_batch_loss(model, x, logits_full, device)  # Replay/LwF
+            if extra is not None:
+                loss = loss + extra
             opt.zero_grad(set_to_none=True)
             loss.backward()
             opt.step()
@@ -108,6 +113,11 @@ def run_continual(
         allowed_eval = sorted(seen)
         for j in range(t + 1):
             R[t, j] = evaluate(model, task_loaders[j]["test"], device, allowed_eval)
+        # (tùy chọn) đo Forward Transfer: đánh giá task KẾ TIẾP trước khi học nó.
+        # Lưu ý: với head khởi tạo mới, FWT thường ~ mức đoán mò — có ý nghĩa hơn từ G2+.
+        if bool(train_cfg.get("eval_future", False)) and t + 1 < T:
+            allowed_next = sorted(set(seen) | set(stream[t + 1].classes))
+            R[t, t + 1] = evaluate(model, task_loaders[t + 1]["test"], device, allowed_next)
         if verbose:
             row = "  ".join(f"{R[t, j]:.3f}" for j in range(t + 1))
             print(f"[task {t}] test acc so far: {row}")
