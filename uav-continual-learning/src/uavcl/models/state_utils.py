@@ -18,10 +18,23 @@ import math
 import torch
 
 
+def _is_tensordict_like(obj) -> bool:
+    """titans-pytorch gói weights/updates trong tensordict.TensorDict — KHÔNG phải dict
+    thường nên phải nhận diện riêng (bỏ sót nó = state còn dính graph -> double-backward)."""
+    if torch.is_tensor(obj):
+        return False
+    mod = (type(obj).__module__ or "").split(".")[0]
+    if mod == "tensordict":
+        return True
+    return hasattr(obj, "apply") and hasattr(obj, "batch_size") and hasattr(obj, "keys")
+
+
 def _tree_map(fn, obj):
     """Áp fn lên mọi tensor trong cấu trúc lồng nhau, giữ nguyên khung."""
     if torch.is_tensor(obj):
         return fn(obj)
+    if _is_tensordict_like(obj):
+        return obj.apply(lambda t: fn(t) if torch.is_tensor(t) else t)
     if isinstance(obj, tuple) and hasattr(obj, "_fields"):  # namedtuple
         return type(obj)(*(_tree_map(fn, o) for o in obj))
     if isinstance(obj, tuple):
@@ -37,6 +50,9 @@ def _tree_tensors(obj):
     """Liệt kê mọi tensor trong cấu trúc (generator)."""
     if torch.is_tensor(obj):
         yield obj
+    elif _is_tensordict_like(obj):
+        for v in obj.values():
+            yield from _tree_tensors(v)
     elif isinstance(obj, (tuple, list)):
         for o in obj:
             yield from _tree_tensors(o)

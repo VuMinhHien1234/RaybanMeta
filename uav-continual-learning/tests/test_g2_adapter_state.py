@@ -49,7 +49,7 @@ def test_state_utils_roundtrip():
     assert d.weights["w1"].requires_grad is False           # gradient bị cắt
     c = clone_state(s)
     c.weights["w1"].add_(100.0)                             # sửa bản sao...
-    assert float(s.weights["w1"].abs().max()) < 100.0       # ...bản gốc không đổi
+    assert float(s.weights["w1"].detach().abs().max()) < 100.0  # ...bản gốc không đổi
     assert state_norm(s) > 0.0
     assert state_norm(None) == 0.0
     assert count_floats(s) == 4 * 4 + 3

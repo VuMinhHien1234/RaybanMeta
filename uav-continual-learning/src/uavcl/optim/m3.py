@@ -139,8 +139,19 @@ class M3(torch.optim.Optimizer):
                     st["o2"] = newton_schulz(st["m2"], steps=T)
                     st["chunk_sum"].zero_()
 
-                # dòng 9–10: trực giao hoá ký ức nhanh, cộng 2 tầng, chia sqrt(V)
-                o1 = newton_schulz(st["m1"], steps=T)
-                denom = st["v"].sqrt().add(eps)
-                p.add_((o1 + alpha * st["o2"]) / denom, alpha=-lr)
+                # dòng 9–10: trực giao hoá ký ức nhanh, cộng 2 tầng, chia sqrt(V).
+                # QUY ƯỚC MUON: NS + ký ức chậm chỉ áp cho tham số MA TRẬN (ndim>=2);
+                # bias/norm 1D rơi về update kiểu Adam thuần (áp nguyên M3 lên vector
+                # gây limit-cycle — đã quan sát được trên bài toán lồi 1D).
+                if p.ndim >= 2:
+                    update = newton_schulz(st["m1"], steps=T) + alpha * st["o2"]
+                else:
+                    update = st["m1"]
+                if style == "paper":
+                    denom = st["v"].sqrt().add(eps)
+                else:
+                    # ema/delta: hiệu chỉnh bias cho V kiểu Adam (bước đầu V còn "non")
+                    bias_corr = 1.0 - b2 ** st["step"]
+                    denom = (st["v"] / bias_corr).sqrt().add(eps)
+                p.add_(update / denom, alpha=-lr)
         return loss
