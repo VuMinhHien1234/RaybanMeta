@@ -14,5 +14,7 @@ pyyaml>=6.0
 tqdm>=4.66
 matplotlib>=3.7
 pytest>=7.4
+python-docx>=1.1        # xuat bao cao docx (make_report)
+tabulate>=0.9          # cho compare_g1 xuat bang markdown
 # Optional (G1 baselines) — uncomment if you use the Avalanche CL library:
 # avalanche-lib>=0.5

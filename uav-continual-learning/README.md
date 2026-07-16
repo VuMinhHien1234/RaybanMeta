@@ -143,6 +143,90 @@ FWT (forward transfer) đo được khi bật `train.eval_future: true`.
 - [ ] Cả team: `compare_g1.py` ra bảng ≥ 10 dòng (2 dataset x 5 method) -> **cổng G1 đạt** (plan yêu cầu ≥3 baseline ổn định).
 - [ ] Thảo luận: replay & NCM đứng ở đâu? Nếu NCM ~ finetune-full về accuracy và không quên -> luận điểm G2/G3 phải nhắm vào chỗ chúng yếu (feature không đủ tách class mới / thích nghi domain shift / chi phí bộ nhớ).
 
+## G2 — Titans memory xuyên task (CODE ĐÃ CÓ — chạy theo bậc A→B→C)
+
+Kiến trúc: frozen backbone → SeqAdapter (ảnh→chuỗi, `image_seq`) → TitansMemory (state)
+→ head. Chi tiết & lý do từng bước: `../plans/PLAN_G2_TITANS.md` + `TASKS_G2_SOLO.md`.
+
+```bash
+pip install titans-pytorch          # nếu chưa có (smoke_titans.py phải [OK])
+pytest tests/test_g2_adapter_state.py tests/test_g2_titans.py -q   # unit test G2
+
+# Bậc A (sanity — trí nhớ không giữ giữa các lần nhìn):
+python scripts/run_g1.py --config configs/g2_titans_smoke.yaml
+python scripts/run_g1.py --config configs/g2_titans_eurosat.yaml
+
+# Bậc B (nhớ trong task):
+python scripts/run_g1.py --config configs/g2_titans_eurosat.yaml --set memory.reset=task
+
+# Bậc C (ĐÍCH — nhớ xuyên task, đo cả FWT):
+python scripts/run_g1.py --config configs/g2_titans_eurosat.yaml --set memory.reset=never train.eval_future=true
+python scripts/run_g1.py --config configs/g2_titans_resisc45.yaml --set memory.reset=never train.eval_future=true
+
+python scripts/compare_g1.py        # Titans tự vào bảng chung (cùng harness)
+```
+Mốc phải vượt (từ `docs/KET_LUAN_G1.md`): **NCM 0.6933** trên RESISC45; mơ tới replay 0.7937;
+Forgetting ≤ 0.1. Log `[titans] norm(state)` in ra sau mỗi task — tăng không chặn = ký ức "phình",
+xem PLAN_G2 §5. State cuối stream lưu ở `artifacts/results/<run>/memory_state.pt`.
+
+Ghi chú kỹ thuật: state được detach sau MỖI batch (truncated BPTT — gradient không xuyên batch,
+nhưng ký ức thì có, vì NeuralMemory tự học online trong forward); khi eval, forward xuất phát từ
+bản clone của state nên chấm thi không làm bẩn stream.
+
+## G3 — CMS retrofit đa tần số (CODE ĐÃ CÓ — optimizer mặc định: M3)
+
+Backbone ViT MỞ BĂNG, nhưng nhịp update do **CMSOptimizer** kiểm soát: block MLP chia
+3 tier `[[4,1],[4,4],[4,16]]` (tier chậm 16 bước mới update 1 lần, grad trung bình, η=0.1);
+attention+norm vào tier chậm; nền pretrained đóng băng. Chi tiết: `../plans/PLAN_G3_CMS.md`
++ `TASKS_G3_SOLO.md`.
+
+```bash
+pytest tests/test_m3.py tests/test_g3_cms.py -q      # cổng kiểm tra trước khi chạy
+
+# Ablation S8 trên EuroSAT (4 run, tên run tự phân biệt order/periods):
+python scripts/run_g1.py --config configs/g3_cms_eurosat.yaml --set cms.order=late_slow
+python scripts/run_g1.py --config configs/g3_cms_eurosat.yaml --set cms.order=early_slow
+python scripts/run_g1.py --config configs/g3_cms_eurosat.yaml --set cms.order=late_slow  "cms.tiers=[[4,1],[4,8],[4,64]]"
+python scripts/run_g1.py --config configs/g3_cms_eurosat.yaml --set cms.order=early_slow "cms.tiers=[[4,1],[4,8],[4,64]]"
+
+# Cấu hình thắng -> RESISC45 (S11):
+python scripts/run_g1.py --config configs/g3_cms_resisc45.yaml --set cms.order=<thắng>
+python scripts/compare_g1.py
+```
+Đọc log bắt buộc: dòng `[cms] tier ...` (block nào ở tier nào — kiểm bằng mắt 1 lần) và
+`[cms] ‖Δw‖ ...` sau mỗi task — **tier chậm phải ≈ 0**, tier nhanh lớn; ngược lại = cài sai,
+dừng đọc số ngay. Đối chứng optimizer: thêm `--set train.optimizer=adamw` (không ghi đè run M3).
+
+## G4 — HOPE = Titans + CMS + M3-delta (WIRING ĐÃ CÓ — chạy sau khi có số G2/G3)
+
+Ghép 2 mảnh đã kiểm chứng riêng: TitansMemory xuyên task (tầng NHANH nhất) ngồi trên
+backbone ViT-CMS (tầng trung/chậm), train bằng M3 Delta Momentum, `grad_agg: sum`
+(nguyên văn Eq. 71). Chi tiết: `../plans/TASKS_G4_SOLO.md`.
+
+```bash
+pytest tests/test_g4_hope.py -q          # kiểm wiring (4 test)
+
+# QUAN TRỌNG: sửa cms.order/tiers trong config = cấu hình THẮNG của ablation G3 trước!
+python scripts/run_g1.py --config configs/g4_hope_eurosat.yaml            # HOPE sân tập
+python scripts/run_g1.py --config configs/g4_hope_resisc45.yaml           # bảng trung tâm
+python scripts/run_g1.py --config configs/g4_hope_resisc45.yaml --set train.optimizer=adamw  # 2x2
+python scripts/compare_g1.py
+```
+Câu hỏi G4 trả lời: **1+1 > 2?** — HOPE phải thắng cả Titans-only lẫn CMS-only.
+Log đọc kèm: `[hope] norm(state)` (canh feature drift — backbone trôi dưới chân memory)
++ `[cms] ‖Δw‖` (tier chậm vẫn phải ≈ 0). FWT bật sẵn (`eval_future: true`).
+
+## Chạy TẤT CẢ bằng một lệnh (kể cả trên GCP) → báo cáo .docx
+
+```bash
+bash scripts/run_all.sh --quick      # thử EuroSAT trước (~2–4h GPU)
+bash scripts/run_all.sh              # full G1→G4 (~8–14h trên T4)
+bash scripts/run_all.sh --shutdown   # GCP: tự tắt máy khi xong
+```
+Resumable (run xong bị skip khi chạy lại) · tự chọn cấu hình CMS thắng từ ablation G3
+cho G4 · kết thúc bằng `artifacts/BAO_CAO_KET_QUA.docx` (bảng + biểu đồ + kết luận tự
+động). Hướng dẫn GCP từng bước: `docs/HUONG_DAN_GCP.md`.
+
 ## Checklist G0 (đánh dấu khi xong)
 - [ ] N1: repo + môi trường chung chạy; `check_env.py` toàn `[OK]`; chốt shortlist dataset.
 - [ ] N2: `smoke_titans.py` chạy `[OK]`; đọc obekt + kmccleary, viết note cơ chế CMS/Titans.

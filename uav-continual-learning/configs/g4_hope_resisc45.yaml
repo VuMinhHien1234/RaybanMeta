@@ -1,0 +1,54 @@
+# G4 — HOPE trên RESISC45 (BẢNG TRUNG TÂM của dự án). ViT-S + Titans-never + CMS + M3-delta.
+# Thay cms.order/tiers bằng cấu hình THẮNG của G3 trước khi chạy (task S6/S7).
+# Bảng 2x2 (S7): chạy thêm --set train.optimizer=adamw để tách công kiến trúc/optimizer.
+# Mốc so (KET_LUAN_G1): ncm 0.6933 | replay 0.7937 | finetune 0.4144/F 0.6133.
+seed: 0
+device: auto
+
+data:
+  name: resisc45
+  hf_repo: timm/resisc45
+  root: ./data
+  num_tasks: 9
+  shuffle_classes: true
+  image_size: 224
+  batch_size: 32
+  num_workers: 2
+
+backbone:
+  name: vit_small_patch16_224
+  pretrained: true
+  freeze: false
+
+memory:
+  enabled: true
+  dim: auto                # = 384
+  chunk_size: 32
+  seq: image_seq
+  reset: never
+
+cms:
+  enabled: true
+  tiers: [[4, 1], [4, 4], [4, 16]]
+  etas: [1.0, 0.5, 0.1]
+  order: late_slow
+  attn: slow
+  grad_agg: sum
+
+train:
+  method: hope
+  optimizer: m3
+  epochs_per_task: 3
+  lr: 0.0001
+  weight_decay: 0.01
+  eval_future: true
+  m3:
+    alpha: 0.5
+    frequency: 16
+    beta_style: delta
+    delta:
+      alpha: [0.999, 0.9999]
+      eta:   [0.1, 0.05]
+
+log:
+  dir: ./artifacts

@@ -1,0 +1,47 @@
+# G2 — Titans trên EuroSAT (sân tập). Backbone resnet18 FROZEN (quyết định G2).
+# Bậc A:  python scripts/run_g1.py --config configs/g2_titans_eurosat.yaml
+# Bậc B:  ... --set memory.reset=task
+# Bậc C:  ... --set memory.reset=never train.eval_future=true
+# Mốc so (KET_LUAN_G1): ncm 0.7486 | replay 0.6191 | finetune 0.4213
+seed: 0
+device: auto
+
+data:
+  name: eurosat
+  root: ./data
+  split_seed: 0
+  num_tasks: 5
+  shuffle_classes: true
+  image_size: 64
+  batch_size: 128
+  num_workers: 2
+
+backbone:
+  name: resnet18           # feat_dim 512 -> memory.dim auto = 512
+  pretrained: true
+  freeze: true             # G2: LUÔN frozen (TitansClassifier cũng tự ép)
+
+memory:
+  enabled: true
+  dim: auto
+  chunk_size: 64           # batch 128 -> memory ghi 2 lần/batch
+  seq: image_seq           # mỗi ảnh = 1 bước thời gian (quyết định Ngày 1)
+  reset: image             # A -> task (B) -> never (C)
+
+train:
+  method: titans
+  optimizer: m3            # mặc định M3; chạy đối chứng: --set train.optimizer=adamw
+  epochs_per_task: 3
+  lr: 0.001                # chỉ train memory + head -> lr cao hơn full-finetune một chút
+  weight_decay: 0.01
+  eval_future: false       # bật true ở bậc C để đo FWT
+  m3:
+    alpha: 0.5
+    frequency: 16
+    beta_style: delta      # Delta Momentum (Eq. 48-49): chi ghi (g - m), cong quen alpha rieng
+    delta:
+      alpha: [0.999, 0.9999] # cong quen (ky uc nhanh, cham)
+      eta:   [0.1, 0.05]     # toc do ghi (ky uc nhanh, cham)
+
+log:
+  dir: ./artifacts

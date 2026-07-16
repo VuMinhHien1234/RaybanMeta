@@ -49,10 +49,16 @@ def evaluate(model, loader, device, allowed: Sequence[int]) -> float:
 def train_one_task(model, method, loader, device, allowed: Sequence[int], train_cfg: dict) -> List[float]:
     """Train model trên MỘT task. Trả về loss trung bình từng epoch (để log)."""
     epochs = int(train_cfg.get("epochs_per_task", 3))
-    lr = float(train_cfg.get("lr", 3e-4))
-    wd = float(train_cfg.get("weight_decay", 0.01))
     # Optimizer tạo MỚI cho mỗi task (không mang moment cũ sang môi trường mới).
-    opt = torch.optim.AdamW((p for p in model.parameters() if p.requires_grad), lr=lr, weight_decay=wd)
+    # Chọn qua config: train.optimizer = adamw | m3; cms.enabled -> bọc đa tần số (G3).
+    from .optim import build_optimizer
+
+    if (train_cfg.get("cms") or {}).get("enabled", False):
+        from .optim.cms_optimizer import build_cms_optimizer
+
+        opt = build_cms_optimizer(model, train_cfg)
+    else:
+        opt = build_optimizer(model.parameters(), train_cfg)
 
     method.begin_task(model, device, allowed)  # vd LwF chụp teacher tại đây
     losses = []

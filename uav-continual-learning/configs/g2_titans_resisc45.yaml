@@ -1,0 +1,46 @@
+# G2 — Titans trên RESISC45 (bảng chính). ViT-S FROZEN + TitansMemory + head.
+# Bậc C (đích): python scripts/run_g1.py --config configs/g2_titans_resisc45.yaml \
+#                 --set memory.reset=never train.eval_future=true
+# Mốc so (KET_LUAN_G1): PHẢI VƯỢT ncm 0.6933; mơ tới replay 0.7937; Forgetting <= 0.1
+seed: 0
+device: auto
+
+data:
+  name: resisc45
+  hf_repo: timm/resisc45
+  root: ./data
+  num_tasks: 9
+  shuffle_classes: true
+  image_size: 224
+  batch_size: 32
+  num_workers: 2
+
+backbone:
+  name: vit_small_patch16_224
+  pretrained: true
+  freeze: true
+
+memory:
+  enabled: true
+  dim: auto                # = 384
+  chunk_size: 32           # = batch -> memory ghi mỗi batch một lần
+  seq: image_seq           # token_seq để dành ablation (chuỗi 196x dài hơn, chậm)
+  reset: image             # chạy A trước cho chắc, rồi --set memory.reset=never
+
+train:
+  method: titans
+  optimizer: m3            # mặc định M3; đối chứng: --set train.optimizer=adamw
+  epochs_per_task: 3
+  lr: 0.001
+  weight_decay: 0.01
+  eval_future: false
+  m3:
+    alpha: 0.5
+    frequency: 16
+    beta_style: delta      # Delta Momentum (Eq. 48-49): chi ghi (g - m), cong quen alpha rieng
+    delta:
+      alpha: [0.999, 0.9999] # cong quen (ky uc nhanh, cham)
+      eta:   [0.1, 0.05]     # toc do ghi (ky uc nhanh, cham)
+
+log:
+  dir: ./artifacts
