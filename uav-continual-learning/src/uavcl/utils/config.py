@@ -35,12 +35,17 @@ def apply_overrides(cfg: dict, pairs: list[str]) -> dict:
 
 
 def _coerce(v: str):
-    low = v.lower()
-    if low in {"true", "false"}:
-        return low == "true"
-    for cast in (int, float):
+    # Đoán kiểu bằng yaml: '0.01'->float, 'true'->bool, '[[4,1],[4,8]]'->list, còn lại giữ str.
+    try:
+        out = yaml.safe_load(v)
+    except yaml.YAMLError:
+        return v
+    if out is None and v.strip() not in ("null", "~", ""):
+        return v
+    # yaml KHÔNG nhận '1e-4' là số (đòi '1.0e-4') -> thử float cho chuỗi trông-như-số
+    if isinstance(out, str) and any(ch.isdigit() for ch in out):
         try:
-            return cast(v)
+            return float(out)
         except ValueError:
-            pass
-    return v
+            return out
+    return out

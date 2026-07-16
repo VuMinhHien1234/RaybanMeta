@@ -1,0 +1,53 @@
+# G4 — HOPE trên EuroSAT: Titans xuyên task (tầng nhanh) + ViT-CMS (tầng trung/chậm) + M3-delta.
+# CHÚ Ý: trước khi chạy full, thay cms.order/tiers bằng CẤU HÌNH THẮNG của ablation G3 (task S6).
+# So trực tiếp với: titans-C (G2), cms-best (G3) trên cùng stream — trả lời "1+1 > 2?".
+seed: 0
+device: auto
+
+data:
+  name: eurosat
+  root: ./data
+  split_seed: 0
+  num_tasks: 5
+  shuffle_classes: true
+  image_size: 224
+  batch_size: 64
+  num_workers: 2
+
+backbone:
+  name: vit_tiny_patch16_224
+  pretrained: true
+  freeze: false            # HOPE: backbone mở băng, CMS kiểm soát nhịp
+
+memory:                    # tầng NHANH NHẤT (Titans, thiết lập thắng của G2)
+  enabled: true
+  dim: auto
+  chunk_size: 64
+  seq: image_seq
+  reset: never             # xuyên task — đích G2 đã chốt
+
+cms:                       # tầng TRUNG + CHẬM (thay bằng cấu hình thắng G3!)
+  enabled: true
+  tiers: [[4, 1], [4, 4], [4, 16]]
+  etas: [1.0, 0.5, 0.1]
+  order: late_slow
+  attn: slow
+  grad_agg: sum            # nguyên văn Eq. 71
+
+train:
+  method: hope             # log cả norm(state) lẫn ‖Δw‖ per-tier
+  optimizer: m3
+  epochs_per_task: 3
+  lr: 0.0001
+  weight_decay: 0.01
+  eval_future: true        # FWT là điểm khoe của memory xuyên task
+  m3:
+    alpha: 0.5
+    frequency: 16
+    beta_style: delta
+    delta:
+      alpha: [0.999, 0.9999]
+      eta:   [0.1, 0.05]
+
+log:
+  dir: ./artifacts

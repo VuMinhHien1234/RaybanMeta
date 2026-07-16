@@ -1,0 +1,52 @@
+# G3 — CMS retrofit, sân tập EuroSAT (chọn cấu hình tier trước khi đốt giờ vào RESISC45).
+# Backbone MỞ BĂNG: CMS chính là "fine-tune có kiểm soát đa tần số".
+# Lưu ý: CMS cần ViT (blocks[i].mlp) -> dùng vit_tiny cho nhanh (KHÔNG so trực tiếp với
+# baseline resnet18 của G1 — bảng chính so ở RESISC45, cùng ViT-S).
+#
+# Ma trận ablation S8 (4 run, không ghi đè nhau nhờ run_name tự gắn order+periods):
+#   python scripts/run_g1.py --config configs/g3_cms_eurosat.yaml --set cms.order=late_slow
+#   python scripts/run_g1.py --config configs/g3_cms_eurosat.yaml --set cms.order=early_slow
+#   ... thêm: --set "cms.tiers=[[4,1],[4,8],[4,64]]" cho biến thể chu kỳ dài
+seed: 0
+device: auto
+
+data:
+  name: eurosat
+  root: ./data
+  split_seed: 0
+  num_tasks: 5
+  shuffle_classes: true
+  image_size: 224          # ViT cần 224 (ảnh 64 sẽ được resize)
+  batch_size: 64
+  num_workers: 2
+
+backbone:
+  name: vit_tiny_patch16_224
+  pretrained: true
+  freeze: false            # G3 mở băng — CMSOptimizer kiểm soát nhịp update
+
+cms:
+  enabled: true
+  tiers: [[4, 1], [4, 4], [4, 16]]   # [số block, chu kỳ update] — fast -> slow
+  etas: [1.0, 0.5, 0.1]              # scale lr per-tier (tier chậm học rất khẽ)
+  order: late_slow                   # late_slow | early_slow (ablation bắt buộc)
+  attn: slow                         # quyết định team; đường lùi: freeze
+  grad_agg: sum                      # sum = NGUYEN VAN Eq. 71; mean = bien the on dinh lr
+
+train:
+  method: cms              # log ‖Δw‖ per-tier mỗi task
+  optimizer: m3            # M3 mặc định; đối chứng: --set train.optimizer=adamw
+  epochs_per_task: 3
+  lr: 0.0001
+  weight_decay: 0.01
+  eval_future: false
+  m3:
+    alpha: 0.5
+    frequency: 16
+    beta_style: delta      # Delta Momentum (Eq. 48-49): chi ghi (g - m), cong quen alpha rieng
+    delta:
+      alpha: [0.999, 0.9999] # cong quen (ky uc nhanh, cham)
+      eta:   [0.1, 0.05]     # toc do ghi (ky uc nhanh, cham)
+
+log:
+  dir: ./artifacts

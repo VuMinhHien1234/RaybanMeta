@@ -32,16 +32,21 @@ def main() -> int:
         print(f"Chưa có run nào trong {root}. Chạy scripts/run_g1.py trước.")
         return 1
 
-    cols = ["dataset", "method", "backbone", "seed", "num_tasks",
+    cols = ["dataset", "method", "optimizer", "backbone", "seed", "num_tasks",
             "average_accuracy", "average_forgetting", "backward_transfer",
             "trainable_params", "method_extra_floats", "runtime_sec"]
     df = pd.DataFrame(rows)
     df = df[[c for c in cols if c in df.columns]].sort_values(["dataset", "method", "seed"])
     print(df.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
 
+    df.to_csv(root / "baseline_table.csv", index=False, float_format="%.4f")
     out = root / "baseline_table.md"
-    out.write_text(df.to_markdown(index=False, floatfmt=".4f"), encoding="utf-8")
-    print(f"\nSaved -> {out}")
+    try:
+        out.write_text(df.to_markdown(index=False, floatfmt=".4f"), encoding="utf-8")
+    except ImportError:  # to_markdown cần 'tabulate' — thiếu thì ghi dạng text
+        out.write_text(df.to_string(index=False, float_format=lambda v: f"{v:.4f}"), encoding="utf-8")
+        print("(Gợi ý: pip install tabulate để có bảng markdown đẹp)")
+    print(f"\nSaved -> {out} (+ baseline_table.csv)")
     return 0
 
 

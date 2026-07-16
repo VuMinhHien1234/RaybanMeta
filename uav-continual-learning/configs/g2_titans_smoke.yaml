@@ -1,0 +1,46 @@
+# G2 smoke — dữ liệu giả + tinycnn + TitansMemory. Kiểm tra đường ống, CPU vài phút.
+# CẦN: pip install titans-pytorch. Chạy: python scripts/run_g1.py --config configs/g2_titans_smoke.yaml
+seed: 0
+device: cpu
+
+data:
+  name: synthetic
+  num_classes: 6
+  train_per_class: 24
+  val_per_class: 8
+  test_per_class: 8
+  split_seed: 0
+  num_tasks: 3
+  shuffle_classes: true
+  image_size: 32
+  batch_size: 16
+  num_workers: 0
+
+backbone:
+  name: tinycnn            # feat_dim 64 -> memory.dim tự = 64 (auto)
+  pretrained: false
+
+memory:
+  enabled: true
+  dim: auto                # = feat_dim của backbone
+  chunk_size: 8            # < batch để memory thật sự "ghi" ngay trong smoke
+  seq: image_seq
+  reset: image             # bậc A; đổi task/never để thử B/C ngay trên smoke
+
+train:
+  method: titans
+  optimizer: m3            # M3 (Algorithm 1, NL.pdf §7.2) — mặc định theo quyết định team
+  epochs_per_task: 2
+  lr: 0.003
+  weight_decay: 0.0
+  eval_future: false
+  m3:
+    alpha: 0.5             # trọng số ký ức chậm
+    frequency: 16          # f — số bước gộp cho ký ức chậm
+    beta_style: delta      # Delta Momentum (Eq. 48-49): chi ghi (g - m), cong quen alpha rieng
+    delta:
+      alpha: [0.999, 0.9999] # cong quen (ky uc nhanh, cham)
+      eta:   [0.1, 0.05]     # toc do ghi (ky uc nhanh, cham)
+
+log:
+  dir: ./artifacts

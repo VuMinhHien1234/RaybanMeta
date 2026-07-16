@@ -209,6 +209,93 @@ class LwF(FineTune):
         return sum(p.numel() for p in self._teacher.parameters()) if self._teacher is not None else 0
 
 
+class TitansCL(FineTune):
+    """G2 — train "backbone frozen + TitansMemory + head" như finetune thường,
+    nhưng quản lý VÒNG ĐỜI STATE theo chế độ reset của model:
+
+    - begin_task: mode "task" -> xoá state (trí nhớ chỉ sống trong task);
+                  mode "never" -> giữ nguyên (trí nhớ xuyên task — đích G2);
+                  mode "image" -> model tự không giữ state, không cần làm gì.
+    - end_task  : log norm(state) — bằng chứng C2 (ký ức có "phình" không).
+    """
+
+    name = "titans"
+
+    def begin_task(self, model, device, allowed: Sequence[int]) -> None:
+        if getattr(model, "reset_mode", None) == "task":
+            model.reset_state()
+
+    @torch.no_grad()
+    def end_task(self, model, loader, device, allowed: Sequence[int]) -> None:
+        if hasattr(model, "state_norm"):
+            print(f"[titans] reset={model.reset_mode} | norm(state) sau task = {model.state_norm():.4f}")
+
+    def footprint_floats(self, model) -> int:
+        return int(model.extra_floats()) if hasattr(model, "extra_floats") else 0
+
+
+class CMS(FineTune):
+    """G3 — train như finetune nhưng optimizer là CMSOptimizer (engine tự chọn khi
+    cms.enabled). Method này chỉ lo LOG BẰNG CHỨNG CƠ CHẾ (task S5):
+
+    ‖Δw‖ per-tier per-task — chụp weight đầu task, cuối task đo mức dịch chuyển
+    từng tier. Kỳ vọng: tier chậm ≈ 0 (giữ kiến thức), tier nhanh lớn (thích nghi).
+    Ngược lại nghĩa là mapping/chu kỳ cài sai — sửa trước khi tin bất kỳ số nào.
+    """
+
+    name = "cms"
+
+    def __init__(self, **_):
+        self._snap = None
+
+    def begin_task(self, model, device, allowed: Sequence[int]) -> None:
+        groups = getattr(model, "_cms_groups", None)
+        if groups:
+            self._snap = {
+                g["name"]: [p.detach().float().cpu().clone() for p in g["params"]]
+                for g in groups
+            }
+
+    @torch.no_grad()
+    def end_task(self, model, loader, device, allowed: Sequence[int]) -> None:
+        groups = getattr(model, "_cms_groups", None)
+        if not groups or not self._snap:
+            return
+        for g in groups:
+            before = self._snap[g["name"]]
+            delta = sum(
+                float((p.detach().float().cpu() - b).norm()) ** 2
+                for p, b in zip(g["params"], before)
+            ) ** 0.5
+            base = sum(float(b.norm()) ** 2 for b in before) ** 0.5
+            rel = delta / base if base > 0 else 0.0
+            print(f"[cms] ‖Δw‖ {g['name']:<5s} (p={g['period']:<3d}): {delta:10.4f}  ({rel:.3%} của ‖w‖)")
+
+
+class HOPE(CMS):
+    """G4 — Titans + CMS chạy chung. Gộp vòng đời của cả hai:
+    - state Titans: reset theo memory.reset (như method titans) + log norm(state)
+      (canh "feature drift" — backbone trôi dưới chân memory);
+    - CMS: log ‖Δw‖ per-tier (kế thừa từ CMS).
+    """
+
+    name = "hope"
+
+    def begin_task(self, model, device, allowed: Sequence[int]) -> None:
+        if getattr(model, "reset_mode", None) == "task":
+            model.reset_state()
+        super().begin_task(model, device, allowed)  # snapshot Δw của CMS
+
+    @torch.no_grad()
+    def end_task(self, model, loader, device, allowed: Sequence[int]) -> None:
+        super().end_task(model, loader, device, allowed)  # in ‖Δw‖ per-tier
+        if hasattr(model, "state_norm"):
+            print(f"[hope] reset={model.reset_mode} | norm(state) sau task = {model.state_norm():.4f}")
+
+    def footprint_floats(self, model) -> int:
+        return int(model.extra_floats()) if hasattr(model, "extra_floats") else 0
+
+
 class NCM(FineTune):
     """Gradient-free: chỉ trích đặc trưng và cập nhật prototype (models/ncm.py)."""
 
@@ -228,7 +315,8 @@ class NCM(FineTune):
         return int(model.extra_floats()) if hasattr(model, "extra_floats") else 0
 
 
-_METHODS = {"finetune": FineTune, "ewc": EWC, "replay": Replay, "lwf": LwF, "ncm": NCM}
+_METHODS = {"finetune": FineTune, "ewc": EWC, "replay": Replay, "lwf": LwF,
+            "ncm": NCM, "titans": TitansCL, "cms": CMS, "hope": HOPE}
 
 
 def build_method(name: str, cfg: dict) -> FineTune:

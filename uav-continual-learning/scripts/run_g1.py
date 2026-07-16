@@ -27,12 +27,27 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 
+def run_dir_name(cfg: dict, method_name: str) -> str:
+    """Tên thư mục kết quả — nguồn duy nhất, dùng cho cả ghi lẫn resume (--skip-existing)."""
+    name = f"{str(cfg['data']['name']).lower()}_{method_name}_seed{int(cfg.get('seed', 0))}"
+    opt = str(cfg.get("train", {}).get("optimizer", "adamw")).lower()
+    if opt != "adamw":
+        name += f"_{opt}"
+    cms_cfg = cfg.get("cms") or {}
+    if cms_cfg.get("enabled", False):
+        periods = "-".join(str(t[1]) for t in cms_cfg.get("tiers", []))
+        name += f"_{cms_cfg.get('order', 'late_slow')}_p{periods}"
+    return name
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", required=True, help="đường dẫn file yaml (vd configs/g1_eurosat.yaml)")
     ap.add_argument("--method", default=None, help="finetune | ewc (mặc định lấy từ config)")
     ap.add_argument("--set", dest="overrides", nargs="*", default=[], metavar="k.sub=v",
                     help="override config, vd: train.lr=1e-4 data.num_tasks=5")
+    ap.add_argument("--skip-existing", action="store_true",
+                    help="đã có metrics.json cho run này thì bỏ qua (resume cho run_all)")
     args = ap.parse_args()
 
     from uavcl.utils.config import apply_overrides, load_config, save_config
@@ -41,6 +56,11 @@ def main() -> int:
     cfg = apply_overrides(load_config(args.config), args.overrides)
     method_name = (args.method or cfg.get("train", {}).get("method", "finetune")).lower()
     seed = int(cfg.get("seed", 0))
+
+    out = pathlib.Path(cfg.get("log", {}).get("dir", "./artifacts")) / "results" / run_dir_name(cfg, method_name)
+    if args.skip_existing and (out / "metrics.json").exists():
+        print(f"[SKIP] {out.name} — đã có kết quả.")
+        return 0
     seed_everything(seed)
     try:
         import torch  
@@ -74,7 +94,24 @@ def main() -> int:
 
     # --- model + method ---
     backbone, feat_dim = build_backbone(cfg["backbone"])
-    if method_name == "ncm":
+    mem_cfg = cfg.get("memory", {}) or {}
+    cms_on = bool((cfg.get("cms") or {}).get("enabled", False))
+    if mem_cfg.get("enabled", False) and cms_on:
+        # G4 — HOPE: Titans (tầng nhanh) + backbone-CMS (tầng trung/chậm)
+        from uavcl.models.hope import HOPEClassifier
+
+        model = HOPEClassifier(backbone, feat_dim, source.num_classes, mem_cfg).to(device)
+        if method_name != "hope":
+            print(f"[WARN] memory+cms cùng bật + method '{method_name}' — thường dùng --method hope")
+        print(f"[hope] seq={model.seq_mode} reset={model.reset_mode} chunk={model.memory.chunk_size}")
+    elif mem_cfg.get("enabled", False):
+        from uavcl.models.titans_head import TitansClassifier
+
+        model = TitansClassifier(backbone, feat_dim, source.num_classes, mem_cfg).to(device)
+        if method_name not in ("titans", "finetune"):
+            print(f"[WARN] memory.enabled + method '{method_name}' — thường dùng --method titans")
+        print(f"[titans] seq={model.seq_mode} reset={model.reset_mode} chunk={model.memory.chunk_size}")
+    elif method_name == "ncm":
         from uavcl.models.ncm import NCMClassifier
 
         model = NCMClassifier(backbone, feat_dim, source.num_classes).to(device)
@@ -83,6 +120,9 @@ def main() -> int:
     method = build_method(method_name, cfg)
 
     # --- run ---
+    cms_cfg = cfg.get("cms") or {}
+    if cms_cfg.get("enabled", False):
+        cfg["train"]["cms"] = cms_cfg  # engine đọc từ train_cfg -> dùng CMSOptimizer (G3)
     R, log = run_continual(model, method, stream, loaders, device, cfg["train"])
 
     # --- metrics + save ---
@@ -92,6 +132,7 @@ def main() -> int:
         "seed": seed,
         "num_tasks": len(stream),
         "backbone": cfg["backbone"]["name"],
+        "optimizer": str(cfg["train"].get("optimizer", "adamw")).lower(),
         "average_accuracy": average_accuracy(R),
         "average_forgetting": average_forgetting(R),
         "backward_transfer": backward_transfer(R),
@@ -102,14 +143,22 @@ def main() -> int:
         "method_extra_floats": int(method.footprint_floats(model)),
         "runtime_sec": round(time.time() - t0, 1),
     }
-    run_name = f"{source.name}_{method_name}_seed{seed}"
-    out = pathlib.Path(cfg.get("log", {}).get("dir", "./artifacts")) / "results" / run_name
-    out.mkdir(parents=True, exist_ok=True)
+    if cms_cfg.get("enabled", False):
+        metrics["cms_order"] = cms_cfg.get("order", "late_slow")
+        metrics["cms_periods"] = "-".join(str(t[1]) for t in cms_cfg.get("tiers", []))
+    out.mkdir(parents=True, exist_ok=True)  # out đã tính từ run_dir_name ở đầu main
     cols = [f"task{j}" for j in range(len(stream))]
     pd.DataFrame(R, index=[f"after_task{i}" for i in range(len(stream))], columns=cols) \
         .to_csv(out / "acc_matrix.csv", float_format="%.4f")
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     save_config(cfg, out / "config.yaml")
+    if hasattr(model, "export_state"):  # G2 (S10): lưu "cục ký ức" cuối stream
+        st = model.export_state()
+        if st is not None:
+            import torch as _torch
+
+            _torch.save(st, out / "memory_state.pt")
+            print(f"  memory_state.pt đã lưu (norm={model.state_norm():.4f})")
 
     print("\n== Ma trận accuracy (hàng = sau khi học task i, cột = đánh giá task j)")
     with np.printoptions(precision=3, suppress=True):
