@@ -53,9 +53,49 @@ gcloud compute instances create uavcl-train \
   2. Muốn `ssh` thẳng không qua gcloud: tạo key như trên rồi thêm public key vào
      Console -> Compute Engine -> Metadata -> SSH Keys.
 
+### 1c. Từ Mac SSH thẳng vào VM — trọn bộ 5 bước (không cần cài gcloud trên Mac)
+**B1 — tạo key trên Mac** (Terminal; `-C` chính là USERNAME sẽ dùng để đăng nhập):
+```bash
+ssh-keygen -t ed25519 -C "vum257792" -f ~/.ssh/gcp_uavcl -N ""
+cat ~/.ssh/gcp_uavcl.pub        # copy TOÀN BỘ 1 dòng này
+```
+**B2 — nạp public key cho VM** (chọn 1 trong 2):
+- Web: Console -> Compute Engine -> **Metadata** -> tab **SSH Keys** -> Edit -> Add item
+  -> dán dòng vừa copy -> Save. (Nạp mức project = mọi VM đều nhận.)
+- Hoặc trong Cloud Shell (thay `ssh-ed25519 AAAA...` bằng nội dung pubkey):
+```bash
+gcloud compute instances add-metadata uavcl-cpu --zone=asia-southeast1-b \
+  --metadata=ssh-keys="vum257792:ssh-ed25519 AAAA... vum257792"
+```
+**B3 — lấy External IP của VM:**
+```bash
+gcloud compute instances describe uavcl-cpu --zone=asia-southeast1-b \
+  --format='get(networkInterfaces[0].accessConfigs[0].natIP)'
+```
+(hoặc nhìn cột External IP trong Console -> VM instances.)
+**B4 — SSH từ Mac:**
+```bash
+ssh -i ~/.ssh/gcp_uavcl vum257792@<EXTERNAL_IP>     # lần đầu hỏi fingerprint -> yes
+```
+**B5 — (tiện) alias để gõ ngắn + scp thẳng từ Mac, khỏi vòng qua Cloud Shell:**
+```bash
+cat >> ~/.ssh/config <<'EOF'
+Host uavcl
+  HostName <EXTERNAL_IP>
+  User vum257792
+  IdentityFile ~/.ssh/gcp_uavcl
+EOF
+ssh uavcl                                   # đăng nhập
+scp uavcl.tgz uavcl:~                       # đẩy code thẳng Mac -> VM
+scp uavcl:~/uav-continual-learning/artifacts/BAO_CAO_KET_QUA.docx ~/Desktop/   # lấy kết quả
+```
+⚠ **IP đổi mỗi lần stop/start VM** (IP tạm) — chạy lại B3 và sửa `HostName` trong ~/.ssh/config.
+Không SSH được: kiểm tra VM đang RUNNING + firewall `default-allow-ssh` tồn tại (mặc định có).
+
 ## 2. Đưa code lên
 Cách A — qua Cloud Shell (không cần cài gì trên Mac):
-1. Trên Mac nén project: `cd /Users/minhvu/Desktop/Raybanmeta && tar czf uavcl.tgz --exclude='.venv' --exclude='data' uav-continual-learning`
+1. Trên Mac nén project (⚠ exclude phải NEO đường dẫn — `--exclude='data'` trần sẽ nuốt nhầm cả `src/uavcl/data`!):
+   `cd /Users/minhvu/Desktop/Raybanmeta && tar czf uavcl.tgz --exclude='uav-continual-learning/.venv' --exclude='uav-continual-learning/data' uav-continual-learning`
    (GIỮ `artifacts/` trong gói — mang theo số G1 đã chạy để VM tự skip toàn bộ G1, tiết kiệm ~2h.)
 2. Cloud Shell: nút ⋮ (3 chấm) -> **Upload** -> chọn `uavcl.tgz`.
 3. Từ Cloud Shell đẩy sang VM và giải nén:
@@ -110,6 +150,38 @@ gcloud compute scp uavcl-train:~/uav-continual-learning/run.log . --zone=asia-so
 ```bash
 gcloud compute instances delete uavcl-train --zone=asia-southeast1-b
 ```
+
+## Phương án CPU — free trial, KHÔNG cần nâng billing (chậm, chấp nhận được cho --quick)
+Free trial cho tạo VM CPU thoải mái (credit $300 tự trả, giới hạn 8 vCPU/region).
+Kỳ vọng thật: `--quick` ≈ 12–18h trên 8 vCPU (chạy qua đêm + ngày); RESISC45 full = NHIỀU NGÀY — đừng làm trên CPU.
+```bash
+# 1) Tạo VM CPU (không SPOT cho đỡ rắc rối quota; ~$0.27/h trừ vào credit)
+gcloud compute instances create uavcl-cpu \
+  --zone=asia-southeast1-b --machine-type=e2-standard-8 \
+  --image-family=ubuntu-2204-lts --image-project=ubuntu-os-cloud \
+  --boot-disk-size=100GB
+
+# 2) Đưa code lên (mục 2 — upload uavcl.tgz qua Cloud Shell rồi scp, nhớ kèm artifacts/)
+gcloud compute scp uavcl.tgz uavcl-cpu:~ --zone=asia-southeast1-b
+gcloud compute ssh uavcl-cpu --zone=asia-southeast1-b
+
+# 3) Trên VM: cài môi trường (torch bản CPU cho nhẹ)
+sudo apt update && sudo apt install -y python3-pip python3-venv tmux
+tar xzf uavcl.tgz && cd uav-continual-learning
+python3 -m venv .venv && source .venv/bin/activate
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements.txt && pip install -e . && pip install python-docx
+python scripts/check_env.py && python -m pytest -q     # device sẽ là: cpu — đúng dự kiến
+
+# 4) Chạy trong tmux, xong tự tắt máy
+tmux new -s train
+bash scripts/run_all.sh --quick --shutdown 2>&1 | tee run.log
+# Ctrl+B rồi D để rời; hôm sau: tmux attach -t train hoặc xem run.log
+
+# 5) Lấy kết quả (chạy từ Cloud Shell; máy đã tắt thì start lại trước: gcloud compute instances start uavcl-cpu --zone=...)
+gcloud compute scp uavcl-cpu:~/uav-continual-learning/artifacts/BAO_CAO_KET_QUA.docx . --zone=asia-southeast1-b
+```
+Xong hẳn nhớ xoá VM (`gcloud compute instances delete uavcl-cpu --zone=asia-southeast1-b`).
 
 ## Sự cố thường gặp
 | Hiện tượng | Xử lý |

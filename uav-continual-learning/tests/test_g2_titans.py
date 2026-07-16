@@ -58,6 +58,21 @@ def test_reset_image_keeps_no_state():
     assert model.state_norm() == 0.0
 
 
+def test_state_is_graph_free_after_forward():
+    """Chẩn đoán thẳng bug double-backward: state lưu lại phải ĐỨT HẲN graph
+    (mọi tensor: grad_fn is None) — kể cả tensor nằm trong tensordict.TensorDict."""
+    from uavcl.models.state_utils import _tree_tensors
+
+    torch.manual_seed(0)
+    backbone, dim = build_backbone({"name": "tinycnn"})
+    model = TitansClassifier(backbone, dim, 4, {**MEM, "reset": "never"})
+    model.train()
+    model(torch.randn(4, 3, 32, 32))
+    assert model._state is not None
+    leaked = [t.shape for t in _tree_tensors(model._state) if t.grad_fn is not None]
+    assert not leaked, f"state còn dính graph ở tensor: {leaked}"
+
+
 def test_reset_never_carries_state_across_tasks():
     R, model, method = _run("never")
     assert np.isfinite(R).all()
