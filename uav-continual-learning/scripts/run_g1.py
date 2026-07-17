@@ -33,6 +33,9 @@ def run_dir_name(cfg: dict, method_name: str) -> str:
     opt = str(cfg.get("train", {}).get("optimizer", "adamw")).lower()
     if opt != "adamw":
         name += f"_{opt}"
+    mem_cfg = cfg.get("memory") or {}
+    if mem_cfg.get("enabled", False):  # 3 bậc reset A/B/C KHÔNG được ghi đè/skip lẫn nhau
+        name += f"_r{str(mem_cfg.get('reset', 'image')).lower()}"
     cms_cfg = cfg.get("cms") or {}
     if cms_cfg.get("enabled", False):
         periods = "-".join(str(t[1]) for t in cms_cfg.get("tiers", []))
@@ -143,6 +146,8 @@ def main() -> int:
         "method_extra_floats": int(method.footprint_floats(model)),
         "runtime_sec": round(time.time() - t0, 1),
     }
+    if mem_cfg.get("enabled", False):
+        metrics["memory_reset"] = str(mem_cfg.get("reset", "image")).lower()
     if cms_cfg.get("enabled", False):
         metrics["cms_order"] = cms_cfg.get("order", "late_slow")
         metrics["cms_periods"] = "-".join(str(t[1]) for t in cms_cfg.get("tiers", []))

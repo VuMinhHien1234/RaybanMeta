@@ -35,6 +35,13 @@ class TitansMemory(nn.Module):
 
     def forward(self, seq: torch.Tensor, state=None):
         assert seq.dim() == 3, f"seq phải là (1, L, D), nhận {tuple(seq.shape)}"
+        # ĐỆM chuỗi cho tròn bội số chunk_size (lặp lại frame cuối), xong CẮT về độ dài gốc.
+        # Lý do: batch lẻ cuối epoch (vd 96 ảnh, chunk 64) làm titans-pytorch lệch sổ
+        # chunk nội bộ -> RuntimeError "size of tensor a (2) must match b (3)".
+        L = seq.shape[1]
+        pad = (-L) % self.chunk_size
+        if pad:
+            seq = torch.cat([seq, seq[:, -1:, :].expand(-1, pad, -1)], dim=1)
         if self._no_state_kwarg:
             raw = self.mem(seq)
         else:
@@ -54,6 +61,8 @@ class TitansMemory(nn.Module):
             out, next_state = raw
         else:
             out, next_state = raw, None
+        if pad:
+            out = out[:, :L, :]  # cắt phần đệm, trả đúng độ dài gốc
         return out, next_state
 
     def extra_floats(self) -> int:

@@ -69,16 +69,25 @@ class M3(torch.optim.Optimizer):
         beta_style: str = "delta",          # "delta" | "ema" | "paper"
         delta_alpha: tuple = (0.999, 0.9999),  # cổng quên α (ký ức nhanh, chậm)
         delta_eta: tuple = (0.1, 0.05),        # tốc độ ghi η (ký ức nhanh, chậm)
+        update_norm: str = "rms",           # "rms" (ổn định, ngữ nghĩa lr kiểu Muon) | "none" (nguyên văn dòng 10)
     ):
+        # VÌ SAO CÓ update_norm (bằng chứng đo được trên EuroSAT/ViT):
+        # Dòng 10 Algorithm 1 chia (O1+αO2) cho sqrt(V): tử số đã bị Newton–Schulz chuẩn
+        # hoá về ~O(1) (vứt độ lớn gradient), mẫu số lại ~độ lớn gradient (rất nhỏ với
+        # backbone pretrained) -> bước đi khuếch đại hàng trăm lần lr -> ‖Δw‖ ~1000%/task,
+        # accuracy sập. "rms": chuẩn hoá RMS của bước ma trận về 1 rồi nhân lr — mỗi bước
+        # dịch đúng cỡ lr (như Muon). "none": nguyên văn paper, giữ cho ablation.
         if beta_style not in ("delta", "ema", "paper"):
             raise ValueError("beta_style phải là 'delta', 'ema' hoặc 'paper'")
+        if update_norm not in ("rms", "none"):
+            raise ValueError("update_norm phải là 'rms' hoặc 'none'")
         for a, e in zip(delta_alpha, delta_eta):
             if not (0.0 < e <= a <= 1.0):
                 raise ValueError(f"cần 0 < η <= α <= 1 (nhận α={a}, η={e})")
         defaults = dict(lr=lr, betas=tuple(betas), alpha=alpha, frequency=int(frequency),
                         ns_steps=int(ns_steps), eps=eps, weight_decay=weight_decay,
                         beta_style=beta_style, delta_alpha=tuple(delta_alpha),
-                        delta_eta=tuple(delta_eta))
+                        delta_eta=tuple(delta_eta), update_norm=update_norm)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -153,5 +162,11 @@ class M3(torch.optim.Optimizer):
                     # ema/delta: hiệu chỉnh bias cho V kiểu Adam (bước đầu V còn "non")
                     bias_corr = 1.0 - b2 ** st["step"]
                     denom = (st["v"] / bias_corr).sqrt().add(eps)
-                p.add_(update / denom, alpha=-lr)
+                step_dir = update / denom
+                if p.ndim >= 2 and group["update_norm"] == "rms" and style != "paper":
+                    # giữ ngữ nghĩa lr: mỗi bước dịch chuyển RMS ≈ lr (chống khuếch đại NS/√V).
+                    # KHÔNG áp cho "paper": chế độ đó là nguyên văn tuyệt đối — sqrt(V) tích lũy
+                    # của nó tự đóng vai bước-giảm-dần kiểu AdaGrad.
+                    step_dir = step_dir / step_dir.pow(2).mean().sqrt().add(1e-12)
+                p.add_(step_dir, alpha=-lr)
         return loss

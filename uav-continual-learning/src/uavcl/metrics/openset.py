@@ -1,9 +1,7 @@
 """Metric open-set "quen/lạ" — thuần numpy (chuyển thể từ project Meta-Rayban CPM).
-
 Dùng khi UAV gặp class CHƯA HỌC: model phải biết nói "chưa biết" thay vì đoán bừa.
 Quy ước: `genuine` = điểm tin cậy trên mẫu thuộc class ĐÃ học (mong cao),
 `impostor` = điểm trên mẫu thuộc class CHƯA học (mong thấp).
-
 - roc_points        : quét ngưỡng -> (FAR, TAR)
 - auc               : diện tích dưới ROC (1.0 = phân biệt hoàn hảo, 0.5 = đoán mò)
 - eer               : điểm ngưỡng nơi 2 loại lỗi bằng nhau (thấp = tốt)
