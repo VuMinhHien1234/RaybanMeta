@@ -151,8 +151,7 @@ class Replay(FineTune):
         self._seen = sorted(set(self._seen) | {int(c) for c in allowed})
 
     def extra_batch_loss(self, model, x, logits_full, device) -> Optional[torch.Tensor]:
-        # Task đầu tiên: buffer chứa toàn class đang học -> không cần ôn.
-        if not self._buf or len(set(c for _, c in self._buf)) <= 0:
+        if not self._buf:  # task đầu: buffer còn rỗng -> chưa có gì để ôn
             return None
         idx = [self._rng.randrange(len(self._buf)) for _ in range(min(self.replay_batch, len(self._buf)))]
         xs = torch.stack([self._buf[i][0] for i in idx]).float().to(device)

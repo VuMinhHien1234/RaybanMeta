@@ -113,6 +113,28 @@ def test_m3_handles_all_param_shapes():
         assert torch.isfinite(p).all()
 
 
+def test_matrix_step_size_follows_lr():
+    """Bug thật từ VM (‖Δw‖ 1023%/task): chế độ nguyên văn khuếch đại bước đi hàng trăm
+    lần lr khi gradient nhỏ. Chế độ 'rms' (mặc định) phải giữ bước ma trận ≈ lr."""
+    torch.manual_seed(0)
+    g = torch.randn(8, 8) * 1e-4          # gradient rất nhỏ — kịch bản ViT pretrained
+
+    W1 = torch.nn.Parameter(torch.zeros(8, 8))
+    opt1 = M3([W1], lr=0.01)              # mặc định update_norm="rms"
+    W1.grad = g.clone()
+    opt1.step()
+    rms_norm = (W1.detach()).pow(2).mean().sqrt()
+    assert 0.002 < float(rms_norm) < 0.05, f"bước rms-mode lệch lr: {float(rms_norm):.4f}"
+
+    W2 = torch.nn.Parameter(torch.zeros(8, 8))
+    opt2 = M3([W2], lr=0.01, update_norm="none")   # nguyên văn dòng 10
+    W2.grad = g.clone()
+    opt2.step()
+    rms_none = (W2.detach()).pow(2).mean().sqrt()
+    # chứng minh hiện tượng khuếch đại (chính là phát hiện ghi vào báo cáo)
+    assert float(rms_none) > float(rms_norm) * 20
+
+
 def test_newton_schulz_orthogonalizes():
     """NS của Muon là XẤP XỈ (hệ số tối ưu cho tốc độ, không cho độ chính xác) —
     tiêu chí đúng: gần trực giao HƠN HẲN ma trận thô, không phải trực giao tuyệt đối."""

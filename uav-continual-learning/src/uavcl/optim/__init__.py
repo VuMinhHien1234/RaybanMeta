@@ -45,6 +45,7 @@ def build_optimizer(params, train_cfg: dict) -> torch.optim.Optimizer:
             beta_style=str(m3_cfg.get("beta_style", "delta")),
             delta_alpha=tuple(delta_cfg.get("alpha", (0.999, 0.9999))),
             delta_eta=tuple(delta_cfg.get("eta", (0.1, 0.05))),
+            update_norm=str(m3_cfg.get("update_norm", "rms")),
         )
     raise KeyError(f"Unknown optimizer '{name}' (chọn: adamw | m3)")
 

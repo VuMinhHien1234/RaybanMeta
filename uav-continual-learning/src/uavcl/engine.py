@@ -46,19 +46,26 @@ def evaluate(model, loader, device, allowed: Sequence[int]) -> float:
     return correct / max(total, 1)
 
 
-def train_one_task(model, method, loader, device, allowed: Sequence[int], train_cfg: dict) -> List[float]:
-    """Train model trên MỘT task. Trả về loss trung bình từng epoch (để log)."""
+def train_one_task(model, method, loader, device, allowed: Sequence[int], train_cfg: dict,
+                   opt=None):
+    """Train model trên MỘT task. Trả về (loss từng epoch, optimizer đã dùng).
+
+    `opt=None` -> tạo optimizer MỚI cho task này (mặc định — không mang moment cũ sang).
+    Truyền `opt` có sẵn -> KÝ ỨC GRADIENT (M1/M2/V của M3) và pha chu kỳ CMS sống
+    XUYÊN task — đúng tinh thần NL "optimizer cũng là bộ nhớ dài hạn"
+    (bật qua config: train.optimizer_per_task: false).
+    """
     epochs = int(train_cfg.get("epochs_per_task", 3))
-    # Optimizer tạo MỚI cho mỗi task (không mang moment cũ sang môi trường mới).
     # Chọn qua config: train.optimizer = adamw | m3; cms.enabled -> bọc đa tần số (G3).
     from .optim import build_optimizer
 
-    if (train_cfg.get("cms") or {}).get("enabled", False):
-        from .optim.cms_optimizer import build_cms_optimizer
+    if opt is None:
+        if (train_cfg.get("cms") or {}).get("enabled", False):
+            from .optim.cms_optimizer import build_cms_optimizer
 
-        opt = build_cms_optimizer(model, train_cfg)
-    else:
-        opt = build_optimizer(model.parameters(), train_cfg)
+            opt = build_cms_optimizer(model, train_cfg)
+        else:
+            opt = build_optimizer(model.parameters(), train_cfg)
 
     method.begin_task(model, device, allowed)  # vd LwF chụp teacher tại đây
     losses = []
@@ -84,7 +91,7 @@ def train_one_task(model, method, loader, device, allowed: Sequence[int], train_
             seen += int(y.numel())
             bar.set_postfix(loss=f"{run / max(seen, 1):.3f}")
         losses.append(run / max(seen, 1))
-    return losses
+    return losses, opt
 
 
 def run_continual(
@@ -101,6 +108,9 @@ def run_continual(
     R = np.zeros((T, T), dtype=float)
     seen: List[int] = []
     log: dict = {"train_loss": {}, "task_classes": {s.task_id: s.classes for s in stream}}
+    # optimizer_per_task=false: ký ức gradient (M3) + pha chu kỳ CMS sống XUYÊN task (NL-đúng hơn)
+    persist_opt = not bool(train_cfg.get("optimizer_per_task", True))
+    opt_carry = None
 
     for t, spec in enumerate(stream):
         allowed_train = spec.classes
@@ -111,7 +121,12 @@ def run_continual(
             method.fit_task(model, task_loaders[t]["train"], device)
             log["train_loss"][t] = []
         else:
-            losses = train_one_task(model, method, task_loaders[t]["train"], device, allowed_train, train_cfg)
+            losses, opt_used = train_one_task(
+                model, method, task_loaders[t]["train"], device, allowed_train, train_cfg,
+                opt=opt_carry,
+            )
+            if persist_opt:
+                opt_carry = opt_used
             log["train_loss"][t] = losses
         method.end_task(model, task_loaders[t]["train"], device, allowed_train)
 

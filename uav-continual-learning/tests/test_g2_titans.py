@@ -36,6 +36,18 @@ def test_memory_forward_and_state_advances():
     assert out2.shape == (1, 8, 16)
 
 
+def test_memory_handles_length_not_multiple_of_chunk():
+    """Bug thật từ VM: batch lẻ cuối epoch (96 ảnh, chunk 64) làm titans-pytorch lệch
+    chunk nội bộ. Wrapper phải đệm-rồi-cắt để MỌI độ dài chuỗi đều chạy."""
+    torch.manual_seed(0)
+    m = TitansMemory(dim=16, chunk_size=4)
+    st = None
+    for L in (6, 3, 4, 7, 1):                  # đủ kiểu: lẻ, ngắn hơn chunk, đúng bội
+        out, st = m(torch.randn(1, L, 16), state=st)
+        assert out.shape == (1, L, 16), f"độ dài {L} bị đổi shape: {tuple(out.shape)}"
+        assert torch.isfinite(out).all()
+
+
 def _run(reset_mode):
     torch.manual_seed(0)
     source = get_source(DATA_CFG)

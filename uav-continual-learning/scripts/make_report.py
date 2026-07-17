@@ -39,11 +39,13 @@ def label(r: dict) -> str:
         lab += f"+{r['optimizer']}"
     if r.get("cms_order"):
         lab += f"({r['cms_order'][:5]},{r.get('cms_periods', '')})"
-    if "titans" in r["method"] and "_never" not in r["run"]:
-        # phân biệt các bậc reset của titans qua tên run nếu có
-        for tag in ("image", "task", "never"):
-            if r["run"].endswith(tag):
-                lab += f"[{tag}]"
+    if r.get("memory_reset"):
+        lab += f"[{r['memory_reset']}]"
+    else:  # run cũ (trước fix đặt tên) thiếu trường memory_reset -> đọc từ tên thư mục
+        for tag in ("_rimage", "_rtask", "_rnever"):
+            if tag in str(r.get("run", "")):
+                lab += f"[{tag[2:]}]"
+                break
     return lab
 
 
