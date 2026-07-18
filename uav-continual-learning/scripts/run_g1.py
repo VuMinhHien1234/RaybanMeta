@@ -36,6 +36,8 @@ def run_dir_name(cfg: dict, method_name: str) -> str:
     mem_cfg = cfg.get("memory") or {}
     if mem_cfg.get("enabled", False):  # 3 bậc reset A/B/C KHÔNG được ghi đè/skip lẫn nhau
         name += f"_r{str(mem_cfg.get('reset', 'image')).lower()}"
+    if not bool(cfg.get("train", {}).get("optimizer_per_task", True)):
+        name += "_optkeep"  # ablation "ký ức optimizer xuyên task" không đè run thường
     cms_cfg = cfg.get("cms") or {}
     if cms_cfg.get("enabled", False):
         periods = "-".join(str(t[1]) for t in cms_cfg.get("tiers", []))
@@ -136,6 +138,7 @@ def main() -> int:
         "num_tasks": len(stream),
         "backbone": cfg["backbone"]["name"],
         "optimizer": str(cfg["train"].get("optimizer", "adamw")).lower(),
+        "optimizer_per_task": bool(cfg["train"].get("optimizer_per_task", True)),
         "average_accuracy": average_accuracy(R),
         "average_forgetting": average_forgetting(R),
         "backward_transfer": backward_transfer(R),
