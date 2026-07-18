@@ -11,9 +11,15 @@ ONLINE theo delta-rule ngay trong forward (test-time learning), theo từng
 khúc `chunk_size` bước. `state` gói toàn bộ ký ức tích lũy — truyền state
 của lần forward trước vào lần sau = trí nhớ nối dài (bậc B/C).
 """
+# ↳ GIẢI THÍCH TỔNG QUAN (điểm cốt lõi của Titans): bộ nhớ này KHÁC mạng thường ở
+#   chỗ nó TỰ SỬA trọng số ngay trong lúc chạy (forward), chứ không chỉ khi train.
+#   Mỗi khi "đọc" 1 chuỗi, nó ghi luôn cái mới vào ký ức (delta-rule). Cục ký ức đó
+#   là `state`; đưa state cũ vào lần sau = nhớ xuyên thời gian.
+# ↳ Class này chỉ là lớp "áo khoác" quanh thư viện titans-pytorch để cả dự án gọi
+#   qua 1 giao diện duy nhất; đổi version thư viện chỉ cần sửa mỗi file này.
 from __future__ import annotations
 
-import warnings
+import warnings  # ↳ Để cảnh báo (không dừng chương trình) khi version thư viện quá cũ.
 
 import torch
 import torch.nn as nn
@@ -21,35 +27,40 @@ import torch.nn as nn
 
 class TitansMemory(nn.Module):
     def __init__(self, dim: int, chunk_size: int = 64, **mem_kwargs):
+        # ↳ dim = độ dài vector; chunk_size = cứ bao nhiêu bước thì ghi ký ức 1 lần;
+        #   **mem_kwargs = các cờ ổn định (gated_transition...) truyền thẳng xuống thư viện.
         super().__init__()
         try:
-            from titans_pytorch import NeuralMemory
+            from titans_pytorch import NeuralMemory  # ↳ Lớp bộ nhớ thần kinh gốc của thư viện.
         except ImportError as e:  # pragma: no cover
             raise ImportError(
                 "G2 cần titans-pytorch: pip install titans-pytorch (xem README bước 4)"
             ) from e
         self.dim = int(dim)
         self.chunk_size = int(chunk_size)
-        self.mem = NeuralMemory(dim=self.dim, chunk_size=self.chunk_size, **mem_kwargs)
+        self.mem = NeuralMemory(dim=self.dim, chunk_size=self.chunk_size, **mem_kwargs)  # ↳ Tạo bộ nhớ thật.
         self._no_state_kwarg = False  # version quá cũ không nhận state -> chạy không nối ký ức
+        # ↳ Cờ ghi nhớ: nếu phát hiện thư viện quá cũ (không nhận tham số state) thì bật True.
 
     def forward(self, seq: torch.Tensor, state=None):
+        # ↳ seq: (1, L, D). state: ký ức trước đó (None = bắt đầu trắng).
         assert seq.dim() == 3, f"seq phải là (1, L, D), nhận {tuple(seq.shape)}"
         # ĐỆM chuỗi cho tròn bội số chunk_size (lặp lại frame cuối), xong CẮT về độ dài gốc.
         # Lý do: batch lẻ cuối epoch (vd 96 ảnh, chunk 64) làm titans-pytorch lệch sổ
         # chunk nội bộ -> RuntimeError "size of tensor a (2) must match b (3)".
-        L = seq.shape[1]
-        pad = (-L) % self.chunk_size
+        L = seq.shape[1]                          # ↳ Độ dài chuỗi thật.
+        pad = (-L) % self.chunk_size              # ↳ Cần đệm thêm bao nhiêu bước cho tròn bội số chunk_size.
         if pad:
             seq = torch.cat([seq, seq[:, -1:, :].expand(-1, pad, -1)], dim=1)
+            # ↳ Lặp lại frame cuối `pad` lần rồi nối vào đuôi -> chuỗi tròn chunk (giá trị đệm sẽ bị cắt sau).
         if self._no_state_kwarg:
-            raw = self.mem(seq)
+            raw = self.mem(seq)                   # ↳ Thư viện cũ: gọi không kèm state.
         else:
             try:
-                raw = self.mem(seq, state=state)
+                raw = self.mem(seq, state=state)  # ↳ Bình thường: truyền ký ức cũ vào để nối tiếp.
             except TypeError:
                 # version không hỗ trợ state kwarg — vẫn chạy được nhưng KHÔNG nối ký ức
-                self._no_state_kwarg = True
+                self._no_state_kwarg = True       # ↳ Nhớ để lần sau khỏi thử lại.
                 warnings.warn(
                     "titans-pytorch version này không nhận state= — bậc B/C sẽ không nối "
                     "ký ức. Nâng cấp: pip install -U titans-pytorch", stacklevel=2,
@@ -57,14 +68,16 @@ class TitansMemory(nn.Module):
                 raw = self.mem(seq)
 
         # Chuẩn hoá output: (retrieved, next_state) | retrieved
+        # ↳ Tùy version, thư viện trả về (kết quả, ký ức mới) HOẶC chỉ kết quả -> đồng bộ về 2 biến.
         if isinstance(raw, tuple) and len(raw) == 2:
             out, next_state = raw
         else:
             out, next_state = raw, None
         if pad:
-            out = out[:, :L, :]  # cắt phần đệm, trả đúng độ dài gốc
-        return out, next_state
+            out = out[:, :L, :]  # cắt phần đệm, trả đúng độ dài gốc  ↳ Bỏ các bước đệm thêm lúc nãy.
+        return out, next_state                    # ↳ Trả (kết quả đọc, ký ức cập nhật) cho classifier.
 
     def extra_floats(self) -> int:
         """Tham số của module bộ nhớ (chưa tính state — cộng riêng ở classifier)."""
+        # ↳ Đếm số tham số của riêng bộ nhớ, để báo cáo "tốn thêm bao nhiêu" so với backbone trần.
         return sum(p.numel() for p in self.mem.parameters())

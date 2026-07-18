@@ -27,6 +27,12 @@ memory:
   chunk_size: 64           # batch 128 -> memory ghi 2 lần/batch
   seq: image_seq           # mỗi ảnh = 1 bước thời gian (quyết định Ngày 1)
   reset: image             # A -> task (B) -> never (C)
+  # fix G4 (07-18): cùng 4 cờ ổn định bật ở HOPE, áp cho Titans-only để so công bằng —
+  # ĐỔI số so với bản 07-17 (kỳ vọng, vì đang chủ động sửa cơ chế M3/Titans).
+  gated_transition: true
+  spectral_norm_surprises: true
+  qk_rmsnorm: true
+  max_grad_norm: 1.0
 
 train:
   method: titans

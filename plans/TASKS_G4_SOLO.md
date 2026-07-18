@@ -43,10 +43,13 @@
       (ký ức ổn không khi backbone TRÔI dưới chân nó?), ‖Δw‖ (tier chậm còn bất động?).
 
 ## Phần C — η tự tính (CHỈ sau khi S7 có số — mỗi lần một biến số)
-- [ ] **S9** `cms.eta_mode: adaptive`: η_tier = η_base × hàm(surprise), với surprise đo bằng
-      độ lệch giữa grad-trung-bình chu kỳ này và hướng update trước của tier (cosine/norm-ratio),
-      clip trong [0, η_base×2]. Cài trong CMSOptimizer + unit test (surprise 0 → η→nhỏ;
-      gradient đổi hướng mạnh → η→lớn). Tắt mặc định.
+- [x] **S9** (code, 07-18 — làm SỚM hơn lịch vì đọc số G4 --quick 07-17 xấu, cần sửa cơ chế
+      trước khi chạy lại — xem `docs/TIEN_DO_2026-07-18.md`) `cms.eta_mode: adaptive`: η_tier =
+      η_base × (1 − cos(grad chu kỳ này, hướng update trước)), clip tự nhiên [0, η_base×2].
+      Cài trong `CMSOptimizer._apply_adaptive_eta` + 3 unit test (`tests/test_g3_cms.py`:
+      surprise 0 → η→nhỏ; ngược hướng → η→lớn; default vẫn `fixed`, không đổi hành vi cũ).
+      Tắt mặc định. ⚠ Unit test mới viết CHƯA chạy được thật (sandbox không có torch) — bắt
+      buộc `pytest -q tests/test_g3_cms.py` trên máy có torch trước khi tin.
 - [ ] **S10** Ablation fixed-vs-adaptive: 2 run EuroSAT; đẹp thì +1 run RESISC45.
       (Đây là "self-modifying nhẹ" — một đóng góp riêng viết được vào báo cáo.)
 

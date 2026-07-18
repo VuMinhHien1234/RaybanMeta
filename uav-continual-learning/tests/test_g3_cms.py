@@ -59,6 +59,50 @@ def test_cms_accumulator_resets_after_due_step():
     assert torch.allclose(p_slow, torch.tensor([-12.0]))  # -2 rồi -10 (không rò chu kỳ cũ)
 
 
+# ------------------------------------------------------------ η-adaptive (S9, fix 07-18)
+def test_cms_eta_adaptive_shrinks_on_repeat_then_grows_on_flip():
+    """surprise = 1 - cos(grad hiện tại, hướng update trước): cùng hướng lặp lại ->
+    surprise~0 -> lr~0 (gần đứng yên); ngược hẳn hướng trước -> surprise~2 -> lr~2x base.
+    SGD lr=1 để kiểm số chính xác từng bước."""
+    p = torch.nn.Parameter(torch.zeros(3))
+    tiers = [{"name": "fast", "period": 1, "eta": 1.0, "params": [p]}]
+    inner = torch.optim.SGD([{"params": [p], "lr": 1.0}])
+    opt = CMSOptimizer(inner, tiers, eta_mode="adaptive")
+
+    same = torch.tensor([1.0, 1.0, 1.0])
+    # step 1: chưa có lịch sử -> surprise trung tính = 1.0 -> lr = base = 1.0
+    opt.zero_grad(); p.grad = same.clone(); opt.step()
+    assert torch.allclose(p, torch.tensor([-1.0, -1.0, -1.0]))
+
+    # step 2: CÙNG hướng grad bước trước -> cos=1 -> surprise=0 -> lr~0 -> p không nhích
+    opt.zero_grad(); p.grad = same.clone(); opt.step()
+    assert torch.allclose(p, torch.tensor([-1.0, -1.0, -1.0]), atol=1e-6)
+
+    # step 3: NGƯỢC hẳn hướng bước trước -> cos=-1 -> surprise=2 -> lr=2*base
+    opt.zero_grad(); p.grad = (-same).clone(); opt.step()
+    assert torch.allclose(p, torch.tensor([1.0, 1.0, 1.0]), atol=1e-5)
+
+
+def test_cms_eta_mode_defaults_to_fixed_and_matches_old_behavior():
+    p_fast = torch.nn.Parameter(torch.zeros(1))
+    p_slow = torch.nn.Parameter(torch.zeros(1))
+    inner = torch.optim.SGD([{"params": [p_fast], "lr": 1.0}, {"params": [p_slow], "lr": 1.0}])
+    opt = CMSOptimizer(inner, _tiers(p_fast, p_slow))
+    assert opt.eta_mode == "fixed"
+    opt.zero_grad()
+    p_fast.grad = torch.ones_like(p_fast)
+    p_slow.grad = torch.ones_like(p_slow)
+    opt.step()
+    assert torch.allclose(p_fast, torch.tensor([-1.0]))  # y hệt hành vi trước khi thêm eta_mode
+
+
+def test_cms_bad_eta_mode_raises():
+    p = torch.nn.Parameter(torch.zeros(1))
+    inner = torch.optim.SGD([p], lr=1.0)
+    with pytest.raises(ValueError):
+        CMSOptimizer(inner, _tiers(p, p), eta_mode="banana")
+
+
 def test_cms_eta_scales_lr():
     p_fast = torch.nn.Parameter(torch.zeros(1))
     p_slow = torch.nn.Parameter(torch.zeros(1))
