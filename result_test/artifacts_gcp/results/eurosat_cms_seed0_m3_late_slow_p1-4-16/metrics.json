@@ -1,0 +1,18 @@
+{
+  "dataset": "eurosat",
+  "method": "cms",
+  "seed": 0,
+  "num_tasks": 5,
+  "backbone": "vit_tiny_patch16_224",
+  "optimizer": "m3",
+  "optimizer_per_task": true,
+  "average_accuracy": 0.21716363636363636,
+  "average_forgetting": 0.6307727272727273,
+  "backward_transfer": -0.6307727272727273,
+  "forward_transfer": null,
+  "trainable_params": 5340298,
+  "method_extra_floats": 0,
+  "runtime_sec": 3159.9,
+  "cms_order": "late_slow",
+  "cms_periods": "1-4-16"
+}

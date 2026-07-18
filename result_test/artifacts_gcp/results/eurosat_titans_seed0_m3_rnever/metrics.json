@@ -1,0 +1,16 @@
+{
+  "dataset": "eurosat",
+  "method": "titans",
+  "seed": 0,
+  "num_tasks": 5,
+  "backbone": "resnet18",
+  "optimizer": "m3",
+  "average_accuracy": 0.3019030303030303,
+  "average_forgetting": 0.7179621212121212,
+  "backward_transfer": -0.7179621212121212,
+  "forward_transfer": 0.0055,
+  "trainable_params": 4990477,
+  "method_extra_floats": 15477773,
+  "runtime_sec": 537.5,
+  "memory_reset": "never"
+}

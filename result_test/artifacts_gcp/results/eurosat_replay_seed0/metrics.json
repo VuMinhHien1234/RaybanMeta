@@ -1,0 +1,15 @@
+{
+  "dataset": "eurosat",
+  "method": "replay",
+  "seed": 0,
+  "num_tasks": 5,
+  "backbone": "resnet18",
+  "optimizer": "adamw",
+  "average_accuracy": 0.6255515151515152,
+  "average_forgetting": -0.006401515151515158,
+  "backward_transfer": 0.22040151515151515,
+  "forward_transfer": null,
+  "trainable_params": 11181642,
+  "method_extra_floats": 2457600,
+  "runtime_sec": 681.0
+}

@@ -1,0 +1,58 @@
+seed: 0
+device: auto
+data:
+  name: eurosat
+  root: ./data
+  split_seed: 0
+  num_tasks: 5
+  shuffle_classes: true
+  image_size: 224
+  batch_size: 64
+  num_workers: 2
+backbone:
+  name: vit_tiny_patch16_224
+  pretrained: true
+  freeze: false
+memory:
+  enabled: true
+  dim: auto
+  chunk_size: 64
+  seq: image_seq
+  reset: never
+cms: &id001
+  enabled: true
+  tiers:
+  - - 4
+    - 1
+  - - 4
+    - 8
+  - - 4
+    - 64
+  etas:
+  - 1.0
+  - 0.5
+  - 0.1
+  order: early_slow
+  attn: slow
+  grad_agg: sum
+train:
+  method: hope
+  optimizer: m3
+  epochs_per_task: 3
+  lr: 0.0001
+  weight_decay: 0.01
+  eval_future: true
+  m3:
+    alpha: 0.5
+    frequency: 16
+    beta_style: delta
+    delta:
+      alpha:
+      - 0.999
+      - 0.9999
+      eta:
+      - 0.1
+      - 0.05
+  cms: *id001
+log:
+  dir: ./artifacts
