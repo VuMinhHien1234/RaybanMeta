@@ -73,6 +73,58 @@ def test_delta_forget_gate_validation():
         M3([torch.nn.Parameter(torch.zeros(2))], delta_alpha=(0.5, 0.9), delta_eta=(0.9, 0.1))
 
 
+# --------------------------------------------------------------- key_proj_eta (fix 07-18)
+# Xấp xỉ rank-1 của P_i (Eq.48-49) — "sai khác #1" trong LOGIC_NESTED_LEARNING.md §5.
+def test_key_proj_eta_default_is_zero_no_behavior_change():
+    """Mặc định key_proj_eta=0.0 -> quỹ đạo y hệt code trước khi thêm tính năng này."""
+    def run(**kw):
+        torch.manual_seed(1)
+        A, b = torch.randn(8, 4), torch.randn(8)
+        x = torch.nn.Parameter(torch.zeros(4))
+        opt = M3([x], lr=0.05, **kw)
+        for _ in range(20):
+            opt.zero_grad()
+            ((A @ x - b) ** 2).mean().backward()
+            opt.step()
+        return x.detach().clone()
+
+    assert torch.allclose(run(), run(key_proj_eta=0.0))
+
+
+def test_key_proj_eta_removes_aligned_component_each_step():
+    """Gradient LẶP LẠI đúng một hướng: m1 luôn nằm dọc đúng hướng đó, nên key_proj_eta=1.0
+    (chiếu trực giao toàn phần) phải đưa m1 về ~0 sau MỖI bước — khác hẳn key_proj_eta=0
+    (m1 hội tụ về điểm cố định khác 0 của delta-rule thường). Đây chính là 'quên có chọn
+    lọc theo hướng x_t' mà bản α vô hướng cũ không làm được."""
+    g = torch.tensor([2.0, 0.0, 0.0, 0.0])
+
+    def run(key_proj_eta, steps=10):
+        x = torch.nn.Parameter(torch.zeros(4))
+        opt = M3([x], lr=0.01, key_proj_eta=key_proj_eta)
+        for _ in range(steps):
+            opt.zero_grad()
+            x.grad = g.clone()
+            opt.step()
+        return opt.state[x]["m1"].clone()
+
+    m1_off = run(0.0)
+    m1_on = run(1.0)
+    assert m1_off.norm() > 1e-3   # hành vi cũ: m1 hội tụ về điểm cố định khác 0
+    assert m1_on.norm() < 1e-5    # bật hẳn: m1 bị "xoá dọc hướng g" lại từ đầu mỗi bước
+
+
+def test_key_proj_eta_out_of_range_raises():
+    with pytest.raises(ValueError):
+        M3([torch.nn.Parameter(torch.zeros(3))], key_proj_eta=1.5)
+    with pytest.raises(ValueError):
+        M3([torch.nn.Parameter(torch.zeros(3))], key_proj_eta=-0.1)
+
+
+def test_m3_converges_with_key_proj_eta_on():
+    first, last = _quadratic_run(lambda ps: M3(ps, lr=0.05, key_proj_eta=0.5))
+    assert last < first * 0.1, f"M3(key_proj_eta=0.5) không hội tụ: {first:.4f} -> {last:.4f}"
+
+
 def test_m3_paper_mode_stable_on_matrix():
     """Chế độ 'paper' (tích lũy KHÔNG suy giảm — nguyên văn Algorithm 1) chỉ ổn định
     khi Newton–Schulz có tác dụng, tức tham số dạng MA TRẬN (NS chuẩn hoá hướng).

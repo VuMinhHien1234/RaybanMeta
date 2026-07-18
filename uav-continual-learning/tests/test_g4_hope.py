@@ -71,3 +71,36 @@ def test_method_hope_registered():
     method = build_method("hope", {})
     assert method.name == "hope"
     assert hasattr(method, "begin_task") and hasattr(method, "end_task")
+
+
+# ---- fix 07-18: 4 cờ ổn định của titans-pytorch (đọc số --quick 07-17: norm(state)
+# nhảy 262->302->120->201->179, Forgetting 0.956 — bệnh feature-drift của HOPE) ----
+
+def test_stability_flags_thread_through_to_neural_memory():
+    """gated_transition/spectral_norm_surprises/qk_rmsnorm/max_grad_norm phải chạy tới
+    tận titans_pytorch.NeuralMemory, không bị rớt dọc đường qua TitansMemory."""
+    mem_cfg = dict(MEM, gated_transition=True, spectral_norm_surprises=True,
+                    qk_rmsnorm=True, max_grad_norm=0.5)
+    m = _model()
+    m2 = HOPEClassifier(
+        timm.create_model("vit_tiny_patch16_224", pretrained=False, num_classes=0),
+        m.memory.dim, 6, mem_cfg,
+    )
+    nm = m2.memory.mem
+    assert nm.transition_gate is not None                 # gated_transition=True
+    assert nm.spectral_norm_surprises is True
+    assert not isinstance(nm.q_norm, torch.nn.Identity)    # qk_rmsnorm=True
+    assert nm.max_grad_norm == pytest.approx(0.5)
+    m2.train()
+    out = m2(torch.randn(2, 3, 224, 224))
+    assert torch.isfinite(out).all()
+
+
+def test_stability_flags_default_off_when_absent():
+    """Config cũ (không có 4 khoá mới) phải hành xử y hệt trước khi sửa — an toàn ngược."""
+    m = _model()
+    nm = m.memory.mem
+    assert nm.transition_gate is None
+    assert nm.spectral_norm_surprises is False
+    assert isinstance(nm.q_norm, torch.nn.Identity)
+    assert nm.max_grad_norm is None

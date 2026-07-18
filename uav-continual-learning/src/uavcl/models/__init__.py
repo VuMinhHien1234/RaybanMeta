@@ -10,6 +10,9 @@
 - cms.py         (G3):   khối MLP đa tần số retrofit lên backbone.
 - hope.py        (G4):   ghép Titans + CMS.
 """
+# ↳ GIẢI THÍCH TỔNG QUAN: __init__ của package `models` — vừa là "mục lục" (docstring
+#   liệt kê từng file làm gì theo mốc G1..G4), vừa gom các class model ra ngoài để
+#   import gọn: `from uavcl.models import HOPEClassifier`.
 from .backbone import TinyCNN, build_backbone
 from .classifier import MASK_FILL, ContinualClassifier, mask_logits
 from .hope import HOPEClassifier
@@ -18,13 +21,14 @@ from .seq_adapter import SeqAdapter
 from .titans_head import TitansClassifier
 
 __all__ = [
-    "TinyCNN",
-    "build_backbone",
-    "ContinualClassifier",
-    "NCMClassifier",
-    "SeqAdapter",
-    "TitansClassifier",
-    "HOPEClassifier",
-    "mask_logits",
-    "MASK_FILL",
+    # ↳ Danh sách tên công khai của package models.
+    "TinyCNN",             # ↳ CNN tí hon cho smoke test.
+    "build_backbone",      # ↳ Nhà máy dựng backbone.
+    "ContinualClassifier", # ↳ Baseline backbone + head (G1).
+    "NCMClassifier",       # ↳ Baseline NCM prototype (G1).
+    "SeqAdapter",          # ↳ Phiên dịch ảnh <-> chuỗi (G2).
+    "TitansClassifier",    # ↳ Model có bộ nhớ Titans (G2).
+    "HOPEClassifier",      # ↳ Titans + CMS hợp nhất (G4).
+    "mask_logits",         # ↳ Hàm che class không được phép.
+    "MASK_FILL",           # ↳ Giá trị dùng để che.
 ]

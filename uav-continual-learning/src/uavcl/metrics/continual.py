@@ -8,6 +8,13 @@ lower-triangle are what matter; the upper-triangle (j > i) is ignored.
 These are the standard GEM-style metrics (Lopez-Paz & Ranzato, 2017)
 that N1 uses to compare every model against the baselines.
 """
+# ↳ GIẢI THÍCH TỔNG QUAN: File này biến ma trận kết quả R (do engine trả về) thành các
+#   CON SỐ TÓM TẮT để so sánh phương pháp. Nhắc lại R[i][j] = độ chính xác task j SAU
+#   khi học xong task i. 4 chỉ số:
+#     - average_accuracy: cuối cùng trung bình đúng bao nhiêu (càng CAO càng tốt).
+#     - backward_transfer (BWT): học cái mới làm task cũ tốt lên hay tệ đi (ÂM = quên).
+#     - forward_transfer (FWT): kiến thức cũ có giúp task mới CHƯA học không.
+#     - average_forgetting: tụt bao nhiêu so với lúc đỉnh (càng THẤP càng tốt — số chính của dự án).
 from __future__ import annotations
 
 import numpy as np
@@ -16,7 +23,7 @@ import numpy as np
 def average_accuracy(R) -> float:
     """Mean accuracy over all tasks after the final training stage (higher = better)."""
     R = np.asarray(R, dtype=float)
-    return float(np.mean(R[-1, :]))
+    return float(np.mean(R[-1, :]))  # ↳ Lấy HÀNG CUỐI (sau khi học hết) rồi trung bình mọi task.
 
 
 def backward_transfer(R) -> float:
@@ -24,8 +31,9 @@ def backward_transfer(R) -> float:
     R = np.asarray(R, dtype=float)
     T = R.shape[0]
     if T < 2:
-        return 0.0
+        return 0.0  # ↳ Chỉ 1 task -> không có "cũ" để đo.
     diffs = [R[-1, j] - R[j, j] for j in range(T - 1)]
+    # ↳ Với mỗi task cũ j: (điểm cuối cùng) − (điểm ngay khi vừa học xong j). Âm = tệ đi = quên.
     return float(np.mean(diffs))
 
 
@@ -42,12 +50,14 @@ def forward_transfer(R, chance: float = 0.0) -> float:
     if T < 2:
         return 0.0
     vals = [R[j - 1, j] - chance for j in range(1, T)]
+    # ↳ Điểm trên task j TRƯỚC khi học nó, trừ mức đoán mò. Dương = kiến thức cũ giúp ích trước.
     return float(np.mean(vals))
 
 
 def average_forgetting(R) -> float:
     """Average forgetting: mean drop from each task's best-ever accuracy to its final
     accuracy (lower = better; this is the headline number the project tries to reduce)."""
+    # ↳ ĐÂY LÀ SỐ CHÍNH của dự án: trung bình mức TỤT từ đỉnh xuống cuối của mỗi task cũ.
     R = np.asarray(R, dtype=float)
     T = R.shape[0]
     if T < 2:
@@ -55,5 +65,6 @@ def average_forgetting(R) -> float:
     forgets = []
     for j in range(T - 1):
         prev_best = np.max(R[j:T - 1, j])  # best accuracy on task j before the final stage
-        forgets.append(prev_best - R[-1, j])
+        # ↳ Điểm CAO NHẤT từng đạt trên task j (trước giai đoạn cuối).
+        forgets.append(prev_best - R[-1, j])  # ↳ Đỉnh − điểm cuối = đã quên bao nhiêu.
     return float(np.mean(forgets))

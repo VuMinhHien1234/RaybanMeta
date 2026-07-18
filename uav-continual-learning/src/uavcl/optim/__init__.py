@@ -7,10 +7,14 @@
         frequency: 16
         ns_steps: 5
         beta_style: ema          # ema | paper (nguyên văn Algorithm 1)
+        key_proj_eta: 0.0        # fix 07-18: xấp xỉ rank-1 của P_i (Eq.48-49) — 0=tắt (mặc định)
 
 CMSOptimizer (G3) sẽ bọc quanh optimizer trả về từ đây — tức CMS chạy được
 trên cả AdamW lẫn M3.
 """
+# ↳ GIẢI THÍCH TỔNG QUAN: __init__ của package `optim`. Nó có 1 "nhà máy"
+#   build_optimizer đọc config rồi trả về AdamW (chuẩn) hoặc M3 (của paper).
+#   Nhờ tách ở đây, CMSOptimizer chỉ cần gọi build_optimizer là bọc được cả hai.
 from __future__ import annotations
 
 import torch
@@ -19,26 +23,27 @@ from .m3 import M3, newton_schulz
 
 
 def build_optimizer(params, train_cfg: dict) -> torch.optim.Optimizer:
+    # ↳ params: có thể là danh sách tham số thường, HOẶC danh sách param-group (CMS truyền vào).
     params = list(params)
     if params and isinstance(params[0], dict):
         # param-groups (CMSOptimizer truyền vào, lr per-tier đã scale) — giữ nguyên
         for g in params:
-            g["params"] = [p for p in g["params"] if p.requires_grad]
+            g["params"] = [p for p in g["params"] if p.requires_grad]  # ↳ Lọc bỏ tham số bị đóng băng.
     else:
-        params = [p for p in params if p.requires_grad]
-    name = str(train_cfg.get("optimizer", "adamw")).lower()
+        params = [p for p in params if p.requires_grad]                # ↳ Trường hợp thường: chỉ giữ tham số còn học.
+    name = str(train_cfg.get("optimizer", "adamw")).lower()            # ↳ Chọn loại optimizer từ config.
     lr = float(train_cfg.get("lr", 3e-4))
     wd = float(train_cfg.get("weight_decay", 0.01))
     if name == "adamw":
-        return torch.optim.AdamW(params, lr=lr, weight_decay=wd)
+        return torch.optim.AdamW(params, lr=lr, weight_decay=wd)       # ↳ Optimizer chuẩn (đối chứng).
     if name == "m3":
-        m3_cfg = dict(train_cfg.get("m3", {}) or {})
+        m3_cfg = dict(train_cfg.get("m3", {}) or {})                   # ↳ Đọc khối cấu hình riêng của M3.
         delta_cfg = dict(m3_cfg.get("delta", {}) or {})
         return M3(
             params,
             lr=lr,
             weight_decay=wd,
-            betas=tuple(m3_cfg.get("betas", (0.9, 0.999, 0.95))),
+            betas=tuple(m3_cfg.get("betas", (0.9, 0.999, 0.95))),      # ↳ Chuyển từng tham số config -> M3.
             alpha=float(m3_cfg.get("alpha", 0.5)),
             frequency=int(m3_cfg.get("frequency", 16)),
             ns_steps=int(m3_cfg.get("ns_steps", 5)),
@@ -46,8 +51,9 @@ def build_optimizer(params, train_cfg: dict) -> torch.optim.Optimizer:
             delta_alpha=tuple(delta_cfg.get("alpha", (0.999, 0.9999))),
             delta_eta=tuple(delta_cfg.get("eta", (0.1, 0.05))),
             update_norm=str(m3_cfg.get("update_norm", "rms")),
+            key_proj_eta=float(m3_cfg.get("key_proj_eta", 0.0)),
         )
-    raise KeyError(f"Unknown optimizer '{name}' (chọn: adamw | m3)")
+    raise KeyError(f"Unknown optimizer '{name}' (chọn: adamw | m3)")   # ↳ Tên lạ -> báo lỗi rõ.
 
 
-__all__ = ["M3", "newton_schulz", "build_optimizer"]
+__all__ = ["M3", "newton_schulz", "build_optimizer"]  # ↳ Tên công khai của package optim.

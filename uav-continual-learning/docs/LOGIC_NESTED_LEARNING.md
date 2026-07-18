@@ -91,6 +91,28 @@ memory ("feature drift") — theo dõi bằng `[hope] norm(state)` mỗi task.
 | 5 | α/η của CMS & M3 là HẰNG SỐ per-tier (chưa data-dependent) | đúng mức Algorithm 1; bản tự-tính (η adaptive) là bước sau, để tách bạch biến số |
 | 6 | `grad_agg: mean` tồn tại cạnh `sum` | sum = nguyên văn; mean giữ ngữ nghĩa lr đồng nhất giữa các chu kỳ — ablate được |
 
+### Cập nhật 07-18 — đọc số G4 --quick xấu (HOPE Forgetting 0.956), thu hẹp 3 khoảng cách trên
+
+Xem `docs/TIEN_DO_2026-07-18.md` cho đầy đủ. Tóm tắt: #1 và #5 KHÔNG còn "chưa làm" mà đã có
+bản cài, tắt mặc định (opt-in) — #4 vẫn giữ nguyên (feature-level), nhưng bệnh feature-drift
+của nó được giảm nhẹ bằng cờ có sẵn trong thư viện, không phải sửa kiến trúc.
+- **#1 (key hằng số)** — thêm `m3.key_proj_eta` (mặc định 0.0): xấp xỉ RANK-1 (không phải
+  ma trận đầy đủ, vẫn bất khả thi) của P_i — trừ đúng phần `m1` nằm dọc hướng gradient hiện
+  tại, "quên có chọn lọc theo hướng" thay vì đều mọi hướng. `src/uavcl/optim/m3.py`.
+- **#5 (η hằng số)** — `cms.eta_mode: adaptive` (S9) nay đã CÀI xong (trước đây chỉ có trong
+  kế hoạch): η_tier = η_base×(1−cos(surprise)). `src/uavcl/optim/cms_optimizer.py`.
+- **Mảnh MỚI, không nằm trong 6 sai khác gốc**: titans-pytorch (0.5.5, đã cài sẵn) có 4 cờ
+  ổn định đúng tinh thần "tự điều chỉnh theo ngữ cảnh" của §8 mà project chưa bật:
+  `gated_transition` (cổng học được quyết định ghi đè bao nhiêu %), `spectral_norm_surprises`
+  (chuẩn hoá Newton-Schulz cho surprise trước khi ghi — cùng họ `update_norm=rms` đã cứu M3),
+  `qk_rmsnorm` (đọc/ghi bền hơn khi feature trôi), `max_grad_norm`. Đã bật cả 4 trong
+  `configs/g4_hope_*.yaml` và `configs/g2_titans_*.yaml`. `src/uavcl/models/titans_head.py`.
+- **Đã dò, KHÔNG khả thi trong đợt này**: tự sinh giá trị mục tiêu v̂ kiểu self-modifying
+  Titans (§8.1) — titans_pytorch 0.5.5 không có hook, `to_values` là linear projection cố
+  định. Cần fork/viết lại `NeuralMemory`, không phải việc chỉnh config — để future work.
+- ⚠ Toàn bộ trên mới qua rà soát code + unit test viết tay (sandbox không có torch để chạy
+  thật) — bắt buộc `pytest -q` trên máy/VM có torch trước khi tin số, rồi mới train lại.
+
 ## 6. Bằng chứng cơ chế = 3 hệ log (đọc mỗi lần chạy)
 
 1. `[titans]/[hope] norm(state)` — ký ức có phình/nổ không, feature drift có xảy ra không.

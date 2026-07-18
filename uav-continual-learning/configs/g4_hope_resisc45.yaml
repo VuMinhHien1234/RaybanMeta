@@ -1,5 +1,6 @@
 # G4 — HOPE trên RESISC45 (BẢNG TRUNG TÂM của dự án). ViT-S + Titans-never + CMS + M3-delta.
-# Thay cms.order/tiers bằng cấu hình THẮNG của G3 trước khi chạy (task S6/S7).
+# ĐÃ THAY (fix 07-18): cms.order/tiers = cấu hình THẮNG G3 (early_slow p1-8-64, đo trên
+# EuroSAT/ViT-tiny — ViT-S cũng 12 block nên ánh xạ tier giữ nguyên 4+4+4).
 # Bảng 2x2 (S7): chạy thêm --set train.optimizer=adamw để tách công kiến trúc/optimizer.
 # Mốc so (KET_LUAN_G1): ncm 0.6933 | replay 0.7937 | finetune 0.4144/F 0.6133.
 seed: 0
@@ -26,14 +27,21 @@ memory:
   chunk_size: 32
   seq: image_seq
   reset: never
+  # fix sau khi đọc số --quick 07-17 (norm(state) nhảy 262->302->120->201->179, Forgetting
+  # 0.956): bật cờ ổn định có sẵn trong titans-pytorch, đúng bệnh feature-drift của HOPE.
+  gated_transition: true
+  spectral_norm_surprises: true
+  qk_rmsnorm: true
+  max_grad_norm: 1.0       # xuất phát điểm — đọc log norm(state) sau smoke để tinh chỉnh
 
 cms:
   enabled: true
-  tiers: [[4, 1], [4, 4], [4, 16]]
+  tiers: [[4, 1], [4, 8], [4, 64]]
   etas: [1.0, 0.5, 0.1]
-  order: late_slow
+  order: early_slow
   attn: slow
   grad_agg: sum
+  eta_mode: fixed          # S9: đổi "adaptive" để bật η theo surprise (1 biến/lần)
 
 train:
   method: hope

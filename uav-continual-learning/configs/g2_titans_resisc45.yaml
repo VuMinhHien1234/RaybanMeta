@@ -26,6 +26,11 @@ memory:
   chunk_size: 32           # = batch -> memory ghi mỗi batch một lần
   seq: image_seq           # token_seq để dành ablation (chuỗi 196x dài hơn, chậm)
   reset: image             # chạy A trước cho chắc, rồi --set memory.reset=never
+  # fix G4 (07-18): cùng 4 cờ ổn định bật ở HOPE, áp cho Titans-only để so công bằng.
+  gated_transition: true
+  spectral_norm_surprises: true
+  qk_rmsnorm: true
+  max_grad_norm: 1.0
 
 train:
   method: titans

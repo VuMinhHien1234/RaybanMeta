@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UAV Continual Learning — Sơ đồ luồng pipeline</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --line:#30363d;
+    --txt:#e6edf3; --muted:#9aa7b4; --accent:#58a6ff; --accent2:#f0883e;
+    --g1:#3fb950; --g2:#58a6ff; --g3:#bc8cff; --g4:#f0883e;
+    --dim:#3a4250;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.5;padding:24px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:18px}
+  .wrap{display:grid;grid-template-columns:1fr 360px;gap:20px;align-items:start}
+  @media(max-width:1000px){.wrap{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+  /* milestone tabs */
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+  .tab{cursor:pointer;border:1px solid var(--line);background:var(--panel2);color:var(--txt);
+    padding:8px 14px;border-radius:999px;font-size:13px;font-weight:600;transition:.15s}
+  .tab small{display:block;font-weight:400;color:var(--muted);font-size:11px}
+  .tab[data-g="G1"].on{border-color:var(--g1);box-shadow:0 0 0 1px var(--g1) inset}
+  .tab[data-g="G2"].on{border-color:var(--g2);box-shadow:0 0 0 1px var(--g2) inset}
+  .tab[data-g="G3"].on{border-color:var(--g3);box-shadow:0 0 0 1px var(--g3) inset}
+  .tab[data-g="G4"].on{border-color:var(--g4);box-shadow:0 0 0 1px var(--g4) inset}
+  .tab.on{background:#0f1520}
+  /* pipeline */
+  .stage{margin:0 0 6px}
+  .stage-label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:14px 0 8px}
+  .row{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}
+  .blk{position:relative;cursor:pointer;background:var(--panel2);border:1px solid var(--line);
+    border-radius:10px;padding:10px 12px;min-width:120px;flex:1;transition:.15s;user-select:none}
+  .blk:hover{transform:translateY(-1px);border-color:var(--accent)}
+  .blk .t{font-weight:600;font-size:13.5px}
+  .blk .f{font-size:11px;color:var(--muted);margin-top:2px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .blk.dim{opacity:.32;filter:grayscale(.4)}
+  .blk.sel{outline:2px solid var(--accent)}
+  .blk[data-tier="g1"].act{border-color:var(--g1)}
+  .blk[data-tier="g2"].act{border-color:var(--g2)}
+  .blk[data-tier="g3"].act{border-color:var(--g3)}
+  .blk[data-tier="core"].act{border-color:var(--accent)}
+  .arrow{align-self:center;color:var(--muted);font-size:20px;flex:0 0 auto}
+  .down{color:var(--muted);text-align:center;font-size:18px;margin:2px 0}
+  /* detail panel */
+  #panel h2{font-size:15px;margin:0 0 2px}
+  #panel .file{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--accent);margin-bottom:10px;word-break:break-all}
+  #panel p{font-size:13.5px;margin:8px 0;color:#d7e0ea}
+  #panel .k{color:var(--accent2);font-weight:600}
+  .badge{display:inline-block;font-size:10.5px;padding:2px 7px;border-radius:6px;margin:2px 4px 2px 0;border:1px solid var(--line);color:var(--muted)}
+  .badge.on{color:#fff}
+  .badge.g1.on{background:var(--g1);border-color:var(--g1)}
+  .badge.g2.on{background:var(--g2);border-color:var(--g2)}
+  .badge.g3.on{background:var(--g3);border-color:var(--g3)}
+  .badge.g4.on{background:var(--g4);border-color:var(--g4)}
+  .legend{font-size:12px;color:var(--muted);margin-top:14px;display:flex;gap:14px;flex-wrap:wrap}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:middle}
+  .mech{margin-top:18px}
+  .mech .card{margin-bottom:12px}
+  .mech h3{margin:0 0 6px;font-size:14px}
+  .mech .card small{color:var(--muted)}
+  code{background:#0f1520;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px}
+  .hint{font-size:12px;color:var(--muted);margin-top:10px}
+</style>
+</head>
+<body>
+  <h1>UAV Continual Learning — luồng pipeline & cách code hoạt động</h1>
+  <div class="sub">Chọn mốc <b>G1→G4</b> để xem thành phần nào tham gia. Bấm vào từng khối để đọc giải thích + tên file nguồn.</div>
+
+  <div class="tabs" id="tabs">
+    <div class="tab" data-g="G1">G1 — Baseline<small>backbone + head, 5 method chống quên</small></div>
+    <div class="tab on" data-g="G2">G2 — Titans<small>thêm bộ nhớ nhanh + state</small></div>
+    <div class="tab" data-g="G3">G3 — CMS<small>optimizer đa tần số</small></div>
+    <div class="tab" data-g="G4">G4 — HOPE<small>Titans + CMS hợp nhất</small></div>
+  </div>
+
+  <div class="wrap">
+    <div class="card">
+      <!-- STAGE 1: DATA -->
+      <div class="stage">
+        <div class="stage-label">① Dữ liệu — biến dataset thành chuỗi task học liên tục</div>
+        <div class="row">
+          <div class="blk" data-tier="core" data-id="source"><div class="t">Dataset</div><div class="f">data/sources.py</div></div>
+          <div class="arrow">→</div>
+          <div class="blk" data-tier="core" data-id="stream"><div class="t">Chia task (stream)</div><div class="f">data/stream.py</div></div>
+          <div class="arrow">→</div>
+          <div class="blk" data-tier="core" data-id="loaders"><div class="t">DataLoader / task</div><div class="f">data/loaders.py</div></div>
+        </div>
+      </div>
+      <div class="down">↓ mỗi batch (ảnh, nhãn)</div>
+
+      <!-- STAGE 2: MODEL -->
+      <div class="stage">
+        <div class="stage-label">② Model — ảnh chạy qua các tầng thành điểm số (logits)</div>
+        <div class="row">
+          <div class="blk" data-tier="core" data-id="backbone"><div class="t">Backbone (ViT)</div><div class="f">models/backbone.py</div></div>
+          <div class="arrow">→</div>
+          <div class="blk" data-tier="g2" data-id="adapter"><div class="t">SeqAdapter</div><div class="f">models/seq_adapter.py</div></div>
+          <div class="arrow">→</div>
+          <div class="blk" data-tier="g2" data-id="memory"><div class="t">Titans Memory + state</div><div class="f">models/memory.py</div></div>
+        </div>
+        <div class="down">↓</div>
+        <div class="row">
+          <div class="blk" data-tier="g2" data-id="postnorm"><div class="t">post_norm + residual</div><div class="f">models/titans_head.py</div></div>
+          <div class="arrow">→</div>
+          <div class="blk" data-tier="core" data-id="head"><div class="t">Head (Linear)</div><div class="f">models/classifier.py</div></div>
+          <div class="arrow">→</div>
+          <div class="blk" data-tier="core" data-id="mask"><div class="t">mask_logits</div><div class="f">models/classifier.py</div></div>
+        </div>
+      </div>
+      <div class="down">↓ logits (B, số_class)</div>
+
+      <!-- STAGE 3: TRAIN -->
+      <div class="stage">
+        <div class="stage-label">③ Huấn luyện — vòng lặp học từng task, chống quên</div>
+        <div class="row">
+          <div class="blk" data-tier="core" data-id="engine"><div class="t">Vòng lặp continual</div><div class="f">engine.py</div></div>
+          <div class="arrow">→</div>
+          <div class="blk" data-tier="core" data-id="method"><div class="t">Method (chống quên)</div><div class="f">methods.py</div></div>
+          <div class="arrow">→</div>
+          <div class="blk" data-tier="g3" data-id="optim"><div class="t">Optimizer</div><div class="f">optim/…</div></div>
+        </div>
+      </div>
+      <div class="down">↓ sau mỗi task: chấm điểm lại toàn bộ task cũ</div>
+
+      <!-- STAGE 4: METRICS -->
+      <div class="stage">
+        <div class="stage-label">④ Đánh giá — ma trận R → các con số tóm tắt</div>
+        <div class="row">
+          <div class="blk" data-tier="core" data-id="R"><div class="t">Ma trận R (T×T)</div><div class="f">engine.run_continual</div></div>
+          <div class="arrow">→</div>
+          <div class="blk" data-tier="core" data-id="metrics"><div class="t">Accuracy / Forgetting</div><div class="f">metrics/continual.py</div></div>
+        </div>
+      </div>
+
+      <div class="legend">
+        <span><span class="dot" style="background:var(--accent)"></span>Khối lõi (mọi mốc)</span>
+        <span><span class="dot" style="background:var(--g2)"></span>Titans (G2, G4)</span>
+        <span><span class="dot" style="background:var(--g3)"></span>CMS (G3, G4)</span>
+        <span style="opacity:.5"><span class="dot" style="background:var(--dim)"></span>Mờ = không dùng ở mốc đang chọn</span>
+      </div>
+      <div class="hint">Mẹo: mỗi khối tương ứng một file thật trong <code>src/uavcl/</code> — mở file đó để đọc comment <code># ↳</code> giải thích từng dòng.</div>
+    </div>
+
+    <!-- DETAIL PANEL -->
+    <div class="card" id="panel">
+      <h2 id="p-title">Bấm một khối để xem giải thích</h2>
+      <div class="file" id="p-file"></div>
+      <div id="p-body"><p class="hint">Đang xem mốc: <b id="p-ms">G2 — Titans</b>. Panel này sẽ hiện: khối làm gì, nằm ở file nào, và có mặt ở những mốc nào.</p></div>
+      <div id="p-badges" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <!-- MECHANISMS -->
+  <div class="mech">
+    <div class="stage-label" style="margin-top:22px">Ba cơ chế cốt lõi (điểm khó nhất của dự án)</div>
+    <div class="wrap" style="grid-template-columns:1fr 1fr 1fr">
+      <div class="card"><h3 style="color:var(--g2)">Titans — bộ nhớ tự ghi</h3>
+        <small>models/memory.py · titans_head.py</small>
+        <p>Bộ nhớ <b>vừa đọc vừa tự sửa trọng số ngay trong lúc chạy</b> (không chỉ khi train). Mỗi lần "nhìn" một chuỗi ảnh, nó ghi cái mới vào <code>state</code> theo delta-rule. Đưa <code>state</code> cũ vào lần sau = nhớ xuyên thời gian/xuyên task.</p>
+        <p><span class="k">2 luật an toàn:</span> detach state mỗi batch (không nổ RAM) &amp; eval trên bản sao (không làm bẩn ký ức).</p>
+      </div>
+      <div class="card"><h3 style="color:var(--g3)">CMS — đa tần số</h3>
+        <small>models/cms.py · optim/cms_optimizer.py</small>
+        <p>Chia tham số thành các <b>tier</b> có chu kỳ khác nhau: tier <span class="k">nhanh</span> cập nhật mỗi bước (học cái mới); tier <span class="k">chậm</span> chỉ cập nhật 16 bước/lần bằng gradient gộp (gần như đứng yên = giữ kiến thức cũ).</p>
+        <p>Bằng chứng đúng cơ chế: <code>‖Δw‖</code> tier chậm ≈ 0%, tier nhanh lớn.</p>
+      </div>
+      <div class="card"><h3 style="color:#e6a5ff">M3 — optimizer là bộ nhớ</h3>
+        <small>optim/m3.py</small>
+        <p>Thay AdamW. Giữ <b>2 tầng ký ức gradient</b>: m1 (nhanh) + m2 (chậm), rồi "làm gọn hướng" bằng Newton–Schulz kiểu Muon. <code>update_norm=rms</code> là cầu chì chống bước nhảy quá lớn.</p>
+        <p><span class="k">HOPE (G4)</span> = Titans (nhớ nhanh) + CMS (backbone đa tần số) chạy chung — đúng cấu trúc "nhiều tầng ký ức" của paper.</p>
+      </div>
+    </div>
+  </div>
+
+<script>
+const MS_NAMES = {G1:"G1 — Baseline",G2:"G2 — Titans",G3:"G3 — CMS",G4:"G4 — HOPE"};
+// active[id] = mảng mốc mà khối này tham gia
+const INFO = {
+  source:{title:"Dataset (nguồn dữ liệu)",file:"src/uavcl/data/sources.py",ms:["G1","G2","G3","G4"],
+    body:"Bọc RESISC45 / EuroSAT / synthetic về CÙNG một hộp chuẩn <code>DataSource</code> (num_classes, class_names, 3 split train/val/test). Nhờ chuẩn hoá, phần còn lại không cần biết đang dùng dataset nào — đổi dataset chỉ bằng sửa config."},
+  stream:{title:"Chia task class-incremental",file:"src/uavcl/data/stream.py",ms:["G1","G2","G3","G4"],
+    body:"Chia N class thành T <b>task</b>: task 1 dạy vài class, task 2 dạy class KHÁC... Model học lần lượt, KHÔNG được xem lại dữ liệu cũ → dễ quên. Đây chính là kịch bản UAV gặp cảnh/vật mới dần theo thời gian. File này thuần Python, test được ở mọi máy."},
+  loaders:{title:"DataLoader cho từng task",file:"src/uavcl/data/loaders.py",ms:["G1","G2","G3","G4"],
+    body:"Biến mỗi task thành 3 'băng chuyền' train/val/test nạp ảnh theo lô (batch), kèm tiền xử lý (resize, chuẩn hoá ImageNet, augmentation khi train). Nhãn giữ id toàn cục — việc giới hạn class do <code>mask_logits</code> lo."},
+  backbone:{title:"Backbone thị giác (con mắt)",file:"src/uavcl/models/backbone.py",ms:["G1","G2","G3","G4"],
+    body:"Nhận ảnh, nén thành 1 vector đặc trưng. <span class='k'>G1/G2:</span> đóng băng (chỉ trích feature). <span class='k'>G3/G4:</span> mở băng — nhưng CMSOptimizer quyết block nào được học, bao lâu/mạnh nhẹ ra sao. Mặc định ViT-Small của timm; có TinyCNN cho smoke test."},
+  adapter:{title:"SeqAdapter (phiên dịch ảnh ↔ chuỗi)",file:"src/uavcl/models/seq_adapter.py",ms:["G2","G4"],
+    body:"Titans nghĩ theo 'chuỗi thời gian' còn backbone cho ra ảnh rời rạc. Adapter quy ước 1 bước thời gian = 1 ẢNH (<code>image_seq</code>, mặc định) hay 1 PATCH (<code>token_seq</code>). Hàm <code>restore()</code> gấp kết quả về lại (B, D) cho head."},
+  memory:{title:"Titans Memory + state (bộ nhớ nhanh)",file:"src/uavcl/models/memory.py",ms:["G2","G4"],
+    body:"Trái tim của G2/G4. Bộ nhớ <b>vừa đọc vừa TỰ GHI</b> trọng số ngay trong forward (delta-rule). <code>state</code> = cục ký ức tích luỹ; truyền state cũ vào lần sau = nhớ xuyên task. G4 bật thêm 4 cờ ổn định (gated_transition, spectral_norm_surprises, qk_rmsnorm, max_grad_norm) để chữa feature-drift."},
+  postnorm:{title:"post_norm + residual",file:"src/uavcl/models/titans_head.py",ms:["G2","G4"],
+    body:"Cộng residual (đầu vào + đầu ra memory) rồi LayerNorm → ổn định số, không mất tín hiệu gốc. Đây là nơi ráp 4 mảnh (backbone→adapter→memory→head) và cài 2 luật an toàn của state (detach mỗi batch, clone khi eval)."},
+  head:{title:"Head phân loại (Linear)",file:"src/uavcl/models/classifier.py",ms:["G1","G2","G3","G4"],
+    body:"Lớp tuyến tính biến vector đặc trưng thành điểm số (logit) cho từng class. Luôn có ĐỦ cột cho MỌI class — không đánh số lại theo task."},
+  mask:{title:"mask_logits (che class)",file:"src/uavcl/models/classifier.py",ms:["G1","G2","G3","G4"],
+    body:"Mẹo dùng chung cả dự án: che (đặt điểm rất thấp) những class không được xét. Khi TRAIN task t → chỉ tính lỗi trên class của t. Khi EVAL → chỉ so trên class ĐÃ học. Nhờ vậy đổi model không phải đổi giao thức đo."},
+  engine:{title:"Vòng lặp học liên tục",file:"src/uavcl/engine.py",ms:["G1","G2","G3","G4"],
+    body:"Trái tim chạy thí nghiệm: học task 0 → chấm điểm; học task 1 → chấm lại cả 0 và 1; ... Kết quả gom vào ma trận <b>R</b>. <code>R[i][j]</code> = độ chính xác task j SAU khi học task i. Mọi G1→G4 đều dùng chung file này."},
+  method:{title:"Method — chiến lược chống quên",file:"src/uavcl/methods.py",ms:["G1","G2","G3","G4"],
+    body:"Engine gọi các 'hook' (trước/trong/sau task); mỗi method cài hook riêng. <span class='k'>G1:</span> FineTune / EWC / Replay / LwF / NCM. <span class='k'>G2:</span> TitansCL (quản lý state). <span class='k'>G3:</span> CMS (log ‖Δw‖). <span class='k'>G4:</span> HOPE (gộp cả hai)."},
+  optim:{title:"Optimizer",file:"src/uavcl/optim/ (m3.py, cms_optimizer.py)",ms:["G1","G2","G3","G4"],
+    body:"<span class='k'>G1/G2:</span> AdamW (chuẩn) hoặc M3. <span class='k'>G3/G4:</span> <b>CMSOptimizer</b> bọc quanh M3/AdamW để chạy đa tần số theo tier. M3 = 'optimizer cũng là bộ nhớ' (2 tầng momentum + Newton–Schulz)."},
+  R:{title:"Ma trận kết quả R",file:"src/uavcl/engine.py → run_continual",ms:["G1","G2","G3","G4"],
+    body:"Bảng T×T. Đường chéo = học tốt tới đâu. Cột cũ tụt dần ở các hàng sau = quên. Toàn bộ đánh giá đọc từ ma trận này."},
+  metrics:{title:"Chỉ số continual learning",file:"src/uavcl/metrics/continual.py",ms:["G1","G2","G3","G4"],
+    body:"Biến R thành số: <b>average_accuracy</b> (càng cao càng tốt), <b>average_forgetting</b> (số CHÍNH cần giảm — mức tụt từ đỉnh xuống cuối), BWT, FWT. HOPE ở --quick 07-17 có Forgetting 0.956 → đó là lý do phải sửa cơ chế."},
+};
+
+let current = "G2";
+
+function applyMilestone(g){
+  current = g;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on', t.dataset.g===g));
+  document.getElementById('p-ms').textContent = MS_NAMES[g];
+  document.querySelectorAll('.blk').forEach(b=>{
+    const id=b.dataset.id; const info=INFO[id];
+    const active = info && info.ms.includes(g);
+    b.classList.toggle('dim', !active);
+    b.classList.toggle('act', !!active);
+  });
+}
+function showDetail(id){
+  const info=INFO[id]; if(!info) return;
+  document.getElementById('p-title').innerHTML=info.title;
+  document.getElementById('p-file').textContent=info.file;
+  document.getElementById('p-body').innerHTML="<p>"+info.body+"</p>";
+  const order=["G1","G2","G3","G4"];
+  document.getElementById('p-badges').innerHTML =
+    "<div class='hint' style='margin-bottom:4px'>Có mặt ở mốc:</div>" +
+    order.map(g=>{
+      const on=info.ms.includes(g);
+      return `<span class="badge ${g.toLowerCase()} ${on?'on':''}">${g}</span>`;
+    }).join("");
+  document.querySelectorAll('.blk').forEach(b=>b.classList.toggle('sel', b.dataset.id===id));
+}
+document.getElementById('tabs').addEventListener('click',e=>{
+  const t=e.target.closest('.tab'); if(t) applyMilestone(t.dataset.g);
+});
+document.querySelectorAll('.blk').forEach(b=>{
+  b.addEventListener('click',()=>showDetail(b.dataset.id));
+});
+applyMilestone('G2');
+showDetail('memory');
+</script>
+</body>
+</html>
