@@ -1,19 +1,18 @@
 """SelfRefNeuralMemory (TASK 3 — Deep Self-Referential Titans, NL.pdf §8.1, Eq 79).
 
-Ý tưởng paper: các projection W_k, W_v, W_q trong Transformer/associative-memory bị ĐÓNG
-BĂNG sau pretrain (Eq 76) -> khả năng "hiểu ngữ cảnh" bị chặn. Paper cho các projection này
-TỰ CẬP NHẬT theo ngữ cảnh (Eq 79) -> "self-referential".
+Ý tưởng paper: projection W_k, W_v, W_q bị ĐÓNG BĂNG sau pretrain (Eq 76) -> khả năng hiểu
+ngữ cảnh bị chặn. Paper cho các projection này TỰ ĐIỀU CHỈNH theo ngữ cảnh (Eq 79) =
+"self-referential". Bản này là "simple version": nhân output projection với một CỔNG tính
+từ ngữ cảnh chuỗi -> projection tự điều biến theo context.
 
-Bản này = "simple version" của Eq 79 (paper cũng nêu một bản đơn giản, chia sẻ giá trị):
-thay projection cố định bằng `ContextAdaptiveProjection` — projection có trọng số hiệu dụng
-ĐIỀU BIẾN THEO NGỮ CẢNH của chuỗi hiện tại. KHÔNG đụng thuật toán store/retrieve của
-titans-pytorch (chỉ tráo module projection, giữ đúng call signature) -> rủi ro thấp, dễ test.
+CÁCH LÀM (bản v2, version-agnostic): KHÔNG rebuild projection (dễ vỡ khi titans-pytorch đổi
+cấu trúc giữa các version), mà BỌC nguyên module projection gốc lại:
+    out = inner(x) * gate(mean_t(x))
+- inner = projection gốc (giữ NGUYÊN mọi trọng số/khởi tạo của thư viện, bất kể cấu trúc).
+- gate init = 1 -> khởi đầu TRÙNG hành vi cũ (ổn định), rồi mạng học cách điều biến.
+Nhờ bọc thay vì rebuild, code chạy được với mọi phiên bản to_queries/to_keys/to_values.
 
-Đây CHƯA phải bản đầy đủ (projection-là-memory-bền-vững có init meta-học — đó là TASK 3-full
-kết hợp TASK 5). Bản này là bước đi được, kiểm chứng được, để đo self-referential có giúp không.
-
-⚠️ CHƯA CHẠY TRAIN KIỂM CHỨNG (sandbox không có torch). Trước khi tin: trên GCP chạy
-   `pytest tests/test_self_ref_memory.py -q` rồi 1 run quick, đọc log norm(state).
+Đây CHƯA phải bản đầy đủ (projection-là-memory-bền có init meta-học — TASK 3-full + TASK 5).
 """
 from __future__ import annotations
 
@@ -21,67 +20,66 @@ import torch
 import torch.nn as nn
 
 
-class ContextAdaptiveProjection(nn.Module):
-    """Thay cho Sequential(LinearNoBias(in,out), activation) trong NeuralMemory.
+class ContextGatedProjection(nn.Module):
+    """Bọc một projection gốc (bất kể cấu trúc) và nhân output với cổng ngữ cảnh.
 
-    Giữ NGUYÊN call signature: (b, n, in) -> (b, n, out). Khác biệt: trọng số hiệu dụng
-    được nhân với một CỔNG tính từ ngữ cảnh chuỗi (mean theo thời gian) -> projection
-    "tự điều chỉnh theo context" thay vì cố định.
+        base = inner(x)                          # projection gốc (giữ nguyên)
+        gate = 2 * sigmoid(W_gate(mean_t(x)))    # (…,1,out) ∈ (0,2), init ~1
+        out  = base * gate
 
-        base = W_base(x)                         # projection nền (init = projection gốc)
-        ctx  = mean_t(x)                         # tóm tắt ngữ cảnh chuỗi
-        gate = 2 * sigmoid(W_gate(ctx))          # (0,2), init ~1  -> khởi đầu ≈ base thuần
-        out  = activation(base * gate)
-
-    Init W_gate = 0 -> gate ban đầu = 1 -> hành vi ban đầu TRÙNG projection cũ (ổn định),
-    rồi mạng học cách điều biến. O(dim) chi phí, không tạo ma trận (dim×dim).
+    Giữ ĐÚNG call signature (…, n, in) -> (…, n, out) như module gốc. Init W_gate=0 ->
+    gate=1 -> out=inner(x) (trùng hành vi cũ lúc khởi đầu, không phá train). O(dim), không
+    tạo ma trận (dim×dim). out_dim được dò bằng 1 lần forward thử trong __init__ (mọi tham số
+    được đăng ký NGAY để optimizer nhìn thấy).
     """
 
-    def __init__(self, in_dim: int, out_dim: int, activation: nn.Module):
+    def __init__(self, inner: nn.Module, in_dim: int):
         super().__init__()
-        self.base = nn.Linear(in_dim, out_dim, bias=False)  # ↳ projection nền (sẽ copy weight gốc).
-        self.to_gate = nn.Linear(in_dim, out_dim)           # ↳ cổng điều biến theo ngữ cảnh.
-        self.activation = activation
-        nn.init.zeros_(self.to_gate.weight)  # ↳ init 0 -> gate=sigmoid(0)=0.5 -> 2*0.5=1 -> = base thuần.
+        self.inner = inner
+        param = next(inner.parameters())          # ↳ lấy device/dtype khớp module gốc.
+        with torch.no_grad():                     # ↳ forward thử để biết out_dim (bất kể cấu trúc inner).
+            probe = torch.zeros(1, 2, in_dim, device=param.device, dtype=param.dtype)
+            out_dim = int(inner(probe).shape[-1])
+        self.to_gate = nn.Linear(in_dim, out_dim, device=param.device, dtype=param.dtype)
+        nn.init.zeros_(self.to_gate.weight)       # ↳ init 0 -> gate=1 -> khởi đầu = inner thuần.
         nn.init.zeros_(self.to_gate.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        base = self.base(x)                                 # ↳ (b, n, out) hoặc (n, out) — theo x.
-        ctx = x.mean(dim=-2, keepdim=True)                  # ↳ trung bình theo trục thời gian = ngữ cảnh.
-        gate = 2.0 * torch.sigmoid(self.to_gate(ctx))       # ↳ (…,1,out) ∈ (0,2), init≈1.
-        return self.activation(base * gate)                 # ↳ projection tự điều biến theo context.
+        base = self.inner(x)                              # ↳ (…, n, out) — projection gốc.
+        ctx = x.mean(dim=-2, keepdim=True)                # ↳ (…, 1, in) tóm tắt ngữ cảnh chuỗi.
+        gate = 2.0 * torch.sigmoid(self.to_gate(ctx))     # ↳ (…, 1, out) ∈ (0,2), init≈1.
+        return base * gate                                # ↳ projection tự điều biến theo context.
 
 
-def _swap_projection(module: nn.Module, attr: str) -> None:
-    """Tráo `module.<attr>` (Sequential(Linear, activation)) -> ContextAdaptiveProjection,
-    ĐỌC shape/activation từ module gốc và GIỮ init trọng số nền (không phá khởi tạo của lib)."""
+def _first_linear_in_features(module: nn.Module) -> int:
+    """Tìm in_features của Linear ĐẦU TIÊN trong projection = độ dài feature vào (= memory dim).
+    Robust với mọi cấu trúc (Sequential / Linear trần / bọc thêm rearrange...)."""
+    for m in module.modules():
+        if isinstance(m, nn.Linear):
+            return int(m.in_features)
+    raise TypeError(
+        "Không tìm thấy nn.Linear trong projection để suy in_dim — "
+        "titans-pytorch đổi cấu trúc lạ? In thử: print(type(mem.to_queries), mem.to_queries)"
+    )
+
+
+def _wrap_projection(module: nn.Module, attr: str) -> None:
+    """Bọc module.<attr> bằng ContextGatedProjection (giữ nguyên module gốc bên trong)."""
     old = getattr(module, attr)
-    # titans-pytorch: to_queries/to_keys/to_values đều là Sequential(LinearNoBias, activation).
-    if not (isinstance(old, nn.Sequential) and len(old) >= 2 and hasattr(old[0], "weight")):
-        raise TypeError(
-            f"{attr} không phải Sequential(Linear, activation) như kỳ vọng "
-            f"(titans-pytorch đổi cấu trúc?) — kiểm tra lại neural_memory.py"
-        )
-    lin, activation = old[0], old[1]
-    out_dim, in_dim = lin.weight.shape                      # nn.Linear weight = (out, in)
-    new = ContextAdaptiveProjection(in_dim, out_dim, activation)
-    with torch.no_grad():
-        new.base.weight.copy_(lin.weight)                   # ↳ giữ đúng init projection gốc.
-    setattr(module, attr, new)                              # ↳ đăng ký lại submodule (params tự vào graph).
+    in_dim = _first_linear_in_features(old)
+    setattr(module, attr, ContextGatedProjection(old, in_dim))  # ↳ đăng ký lại -> params vào graph.
 
 
 def make_self_referential(mem: nn.Module, targets=("to_queries", "to_keys", "to_values")) -> nn.Module:
-    """Biến một NeuralMemory (đã dựng) thành self-referential bằng cách tráo các projection."""
+    """Biến một NeuralMemory (đã dựng) thành self-referential: bọc các projection k/v/q."""
     for attr in targets:
-        _swap_projection(mem, attr)
+        if hasattr(mem, attr):
+            _wrap_projection(mem, attr)
     return mem
 
 
 def build_self_ref_neural_memory(dim: int, chunk_size: int, **mem_kwargs):
-    """Dựng NeuralMemory chuẩn của titans-pytorch rồi tráo projection sang context-adaptive.
-
-    Tách rời khỏi TitansMemory để dễ test độc lập. Ném ImportError rõ nếu thiếu titans-pytorch.
-    """
+    """Dựng NeuralMemory chuẩn rồi bọc projection sang context-gated. Ném ImportError rõ nếu thiếu lib."""
     try:
         from titans_pytorch import NeuralMemory
     except ImportError as e:  # pragma: no cover
