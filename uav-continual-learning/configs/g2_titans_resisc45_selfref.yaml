@@ -31,7 +31,7 @@ memory:
   qk_rmsnorm: true
   max_grad_norm: 1.0
   depth: 3
-  heads: 2
+  heads: 1                 # heads>1 -> tham số overlapping-memory, kẹt weight-decay của M3; để 1, xử lý sau
   self_referential: true   # <-- TASK 3: tráo projection cố định -> context-adaptive (Eq 79)
 
 train:

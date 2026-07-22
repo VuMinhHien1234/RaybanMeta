@@ -32,8 +32,8 @@ memory:
   spectral_norm_surprises: true
   qk_rmsnorm: true
   max_grad_norm: 1.0
-  depth: 3                 # BẬC 1: memory MLP 2 -> 3 lớp
-  heads: 2                 # BẬC 1: 1 -> 2 đầu (dim_head = 384/2 = 192)
+  depth: 3                 # BẬC 1: memory MLP 2 -> 3 lớp (đòn bẩy "Deep" chính của paper)
+  heads: 1                 # heads>1 -> tham số overlapping-memory, kẹt weight-decay của M3; để 1, xử lý sau
 
 train:
   method: titans
