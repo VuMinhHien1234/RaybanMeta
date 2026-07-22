@@ -1,0 +1,7 @@
+
+result_test/
+*.tgz
+*.pt
+.venv/
+data/
+__pycache__/
