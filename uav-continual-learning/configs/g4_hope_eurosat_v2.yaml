@@ -1,0 +1,72 @@
+# G4 — HOPE trên EuroSAT (v2, FIX drift 07-21): Titans (tầng nhanh) + ViT-CMS (tầng trung/chậm).
+#
+# LÝ DO v2 — chẩn đoán từ log ‖Δw‖ của run cũ (result_test/run.log):
+#   tier "chậm" (p=64) đáng lẽ ~0% lại nhảy tới 6461% ‖w‖ ở task 3; ‖Δw‖ nổ theo cấp số
+#   nhân (714 -> 9.513 -> 376.146 -> 5.253.499). Kết luận: (1) M3 nội phân kỳ, (2) phổ tần
+#   số gãy — tier chậm KHÔNG neo. Đây là bệnh thật đằng sau HOPE 21.7%/F 0.956, không phải
+#   feature-drift tinh tế.
+#
+# BA THAY ĐỔI (so g4_hope_eurosat.yaml gốc) — đọc log ‖Δw‖ để kiểm chứng từng cái:
+#   1. train.optimizer  : m3 -> adamw   (CHẶN NỔ: AdamW chuẩn hoá theo √v nên bước ~lr dù
+#                                        gradient gộp p bước có lớn — ‖Δw‖ phải bị chặn <100%).
+#   2. cms.etas slow    : 0.1 -> 0.01   (ÉP TIER CHẬM THÀNH NEO: hạ 10x tốc độ học tier chậm).
+#   3. cms.eta_mode     : fixed -> adaptive  (η tự co giãn theo surprise — đúng tinh thần
+#                                             phổ tần số của paper §7; đã có sẵn trong code S9).
+# Muốn ablate 1-biến/lần: copy file này, đổi lại từng dòng về giá trị cũ.
+seed: 0
+device: auto
+
+data:
+  name: eurosat
+  root: ./data
+  split_seed: 0
+  num_tasks: 5
+  shuffle_classes: true
+  image_size: 224
+  batch_size: 64
+  num_workers: 2
+
+backbone:
+  name: vit_tiny_patch16_224
+  pretrained: true
+  freeze: false            # HOPE: backbone mở băng, CMS kiểm soát nhịp
+
+memory:                    # tầng NHANH NHẤT (Titans, thiết lập thắng của G2)
+  enabled: true
+  dim: auto
+  chunk_size: 64
+  seq: image_seq
+  reset: never             # xuyên task — đích G2 đã chốt
+  gated_transition: true
+  spectral_norm_surprises: true
+  qk_rmsnorm: true
+  max_grad_norm: 1.0
+
+cms:                       # tầng TRUNG + CHẬM
+  enabled: true
+  tiers: [[4, 1], [4, 8], [4, 64]]
+  etas: [1.0, 0.3, 0.01]   # <-- THAY ĐỔI 2: slow 0.1 -> 0.01 (mid 0.5 -> 0.3). Mục tiêu ‖Δw‖ slow ~vài %.
+  order: early_slow
+  attn: slow
+  grad_agg: sum            # nguyên văn Eq. 71
+  eta_mode: adaptive       # <-- THAY ĐỔI 3: fixed -> adaptive (η co giãn theo surprise, S9).
+
+train:
+  method: hope             # log cả norm(state) lẫn ‖Δw‖ per-tier
+  optimizer: adamw         # <-- THAY ĐỔI 1: m3 -> adamw (chặn phân kỳ; M3 nội làm ‖Δw‖ nổ triệu-đơn-vị).
+  epochs_per_task: 3
+  lr: 0.0001
+  weight_decay: 0.01
+  eval_future: true
+  # Khối m3 giữ lại để dễ đổi ngược train.optimizer=m3 khi muốn so sánh (adamw bỏ qua khối này):
+  m3:
+    alpha: 0.5
+    frequency: 16
+    beta_style: delta
+    delta:
+      alpha: [0.999, 0.9999]
+      eta:   [0.1, 0.05]
+    key_proj_eta: 0.0
+
+log:
+  dir: ./artifacts

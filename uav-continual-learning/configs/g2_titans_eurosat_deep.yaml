@@ -1,0 +1,54 @@
+# G2 — Titans EuroSAT DEEP (Bậc 1 "Deep Self-Referential Titans", NL.pdf §8.1).
+# Giống hệt cấu hình P1 (Titans + 4 cờ, reset=never) NHƯNG memory SÂU hơn:
+#   depth 2 -> 3   (MLP memory 3 lớp)
+#   heads 1 -> 2   (2 đầu memory song song; dim_head = 512/2 = 256)
+# So trực tiếp với P1 (depth2/heads1 = 39.4% / F 0.462) để đo memory sâu có giúp không.
+# 1-BIẾN/LẦN: muốn tách công của depth vs heads, tạo 2 bản (một bản chỉ depth=3, một bản chỉ heads=2).
+seed: 0
+device: auto
+
+data:
+  name: eurosat
+  root: ./data
+  split_seed: 0
+  num_tasks: 5
+  shuffle_classes: true
+  image_size: 64
+  batch_size: 128
+  num_workers: 2
+
+backbone:
+  name: resnet18           # feat_dim 512 -> memory.dim auto = 512
+  pretrained: true
+  freeze: true
+
+memory:
+  enabled: true
+  dim: auto
+  chunk_size: 64
+  seq: image_seq
+  reset: never             # xuyên task (bậc C) — khớp P1
+  gated_transition: true
+  spectral_norm_surprises: true
+  qk_rmsnorm: true
+  max_grad_norm: 1.0
+  depth: 3                 # <-- BẬC 1: memory MLP 2 -> 3 lớp
+  heads: 2                 # <-- BẬC 1: 1 -> 2 đầu memory (dim_head = 512/2)
+
+train:
+  method: titans
+  optimizer: m3            # đổi chứng: --set train.optimizer=adamw
+  epochs_per_task: 3
+  lr: 0.001
+  weight_decay: 0.01
+  eval_future: true        # đo FWT — khớp P1
+  m3:
+    alpha: 0.5
+    frequency: 16
+    beta_style: delta
+    delta:
+      alpha: [0.999, 0.9999]
+      eta:   [0.1, 0.05]
+
+log:
+  dir: ./artifacts_titans_deep

@@ -26,19 +26,26 @@ import torch.nn as nn
 
 
 class TitansMemory(nn.Module):
-    def __init__(self, dim: int, chunk_size: int = 64, **mem_kwargs):
+    def __init__(self, dim: int, chunk_size: int = 64, self_referential: bool = False, **mem_kwargs):
         # ↳ dim = độ dài vector; chunk_size = cứ bao nhiêu bước thì ghi ký ức 1 lần;
         #   **mem_kwargs = các cờ ổn định (gated_transition...) truyền thẳng xuống thư viện.
+        #   self_referential (TASK 3, NL §8.1 Eq 79): tráo projection cố định -> context-adaptive.
         super().__init__()
-        try:
-            from titans_pytorch import NeuralMemory  # ↳ Lớp bộ nhớ thần kinh gốc của thư viện.
-        except ImportError as e:  # pragma: no cover
-            raise ImportError(
-                "G2 cần titans-pytorch: pip install titans-pytorch (xem README bước 4)"
-            ) from e
         self.dim = int(dim)
         self.chunk_size = int(chunk_size)
-        self.mem = NeuralMemory(dim=self.dim, chunk_size=self.chunk_size, **mem_kwargs)  # ↳ Tạo bộ nhớ thật.
+        self.self_referential = bool(self_referential)
+        if self.self_referential:
+            # bản self-referential: dựng NeuralMemory rồi tráo to_keys/values/queries (self_ref_memory.py).
+            from .self_ref_memory import build_self_ref_neural_memory
+            self.mem = build_self_ref_neural_memory(self.dim, self.chunk_size, **mem_kwargs)
+        else:
+            try:
+                from titans_pytorch import NeuralMemory  # ↳ Lớp bộ nhớ thần kinh gốc của thư viện.
+            except ImportError as e:  # pragma: no cover
+                raise ImportError(
+                    "G2 cần titans-pytorch: pip install titans-pytorch (xem README bước 4)"
+                ) from e
+            self.mem = NeuralMemory(dim=self.dim, chunk_size=self.chunk_size, **mem_kwargs)  # ↳ Tạo bộ nhớ thật.
         self._no_state_kwarg = False  # version quá cũ không nhận state -> chạy không nối ký ức
         # ↳ Cờ ghi nhớ: nếu phát hiện thư viện quá cũ (không nhận tham số state) thì bật True.
 

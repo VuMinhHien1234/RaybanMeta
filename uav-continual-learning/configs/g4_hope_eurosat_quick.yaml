@@ -1,0 +1,65 @@
+# G4 — HOPE EuroSAT QUICK (vòng lặp nhanh để chỉnh phổ tần số CMS).
+#
+# MỤC ĐÍCH: HOPE full ~54 phút/run -> không thể lặp. File này rút gọn còn 2 task × 1 epoch
+# (~6-8 phút) để CHỈNH & ĐỌC log ‖Δw‖ trong vài phút, xong mới chạy full (g4_hope_eurosat_v2).
+# KHÔNG dùng số accuracy của quick để báo cáo — chỉ dùng để xem PHỔ TẦN SỐ đã đúng chưa:
+#   MỤC TIÊU khi đọc log:  slow (p=64) ‖Δw‖ ~0-5% của ‖w‖  ·  fast > mid > slow  ·  KHÔNG có
+#   con số triệu-đơn-vị / % ba-bốn-chữ-số (đó là dấu phân kỳ).
+#
+# Mang y nguyên 3 fix của g4_hope_eurosat_v2 (adamw nội + slow eta 0.01 + eta_mode adaptive).
+seed: 0
+device: auto
+
+data:
+  name: eurosat
+  root: ./data
+  split_seed: 0
+  num_tasks: 2             # <-- QUICK: 5 -> 2 task (tối thiểu để đo forgetting)
+  shuffle_classes: true
+  image_size: 224
+  batch_size: 64
+  num_workers: 2
+
+backbone:
+  name: vit_tiny_patch16_224
+  pretrained: true
+  freeze: false
+
+memory:
+  enabled: true
+  dim: auto
+  chunk_size: 64
+  seq: image_seq
+  reset: never
+  gated_transition: true
+  spectral_norm_surprises: true
+  qk_rmsnorm: true
+  max_grad_norm: 1.0
+
+cms:
+  enabled: true
+  tiers: [[4, 1], [4, 8], [4, 64]]
+  etas: [1.0, 0.3, 0.01]
+  order: early_slow
+  attn: slow
+  grad_agg: sum
+  eta_mode: adaptive
+
+train:
+  method: hope
+  optimizer: adamw
+  epochs_per_task: 1       # <-- QUICK: 3 -> 1 epoch
+  lr: 0.0001
+  weight_decay: 0.01
+  eval_future: true
+  m3:
+    alpha: 0.5
+    frequency: 16
+    beta_style: delta
+    delta:
+      alpha: [0.999, 0.9999]
+      eta:   [0.1, 0.05]
+    key_proj_eta: 0.0
+
+log:
+  dir: ./artifacts_hope_quick

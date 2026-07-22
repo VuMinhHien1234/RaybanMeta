@@ -46,7 +46,12 @@ RESET_MODES = ("image", "task", "never")  # ↳ 3 chế độ giữ ký ức h�
 #   memory.qk_rmsnorm:               chuẩn hoá query/key — đọc/ghi bền hơn khi feature bên
 #                                    dưới TRÔI (đúng bệnh feature-drift của HOPE).
 #   memory.max_grad_norm:            clip gradient nội bộ khi tính surprise (float | None).
-_STABILITY_KEYS = ("gated_transition", "spectral_norm_surprises", "qk_rmsnorm")  # ↳ 3 cờ dạng bật/tắt.
+# TASK 2 (η/α data-dependent, NL.pdf Eq 76): titans-pytorch ĐÃ tự tính η_t (to_adaptive_step)
+# và α_t forget (to_decay_factor) TỪ INPUT theo mặc định -> phần Eq 76 coi như có sẵn. Cờ thêm
+# duy nhất là per_parameter_lr_modulation: cho "mạng ngoài" điều tiết lr theo TỪNG ma trận memory
+# (một tầng self-modifying nhẹ nữa). Mặc định tắt -> bật qua memory.per_parameter_lr_modulation.
+_STABILITY_KEYS = ("gated_transition", "spectral_norm_surprises", "qk_rmsnorm",
+                   "per_parameter_lr_modulation")  # ↳ các cờ dạng bật/tắt truyền thẳng xuống NeuralMemory.
 
 
 def _stability_kwargs(memory_cfg: dict) -> dict:
@@ -82,8 +87,24 @@ class TitansClassifier(nn.Module):
 
         self.adapter = SeqAdapter(self.seq_mode)     # ↳ Bộ phiên dịch ảnh <-> chuỗi.
         stab_kwargs = _stability_kwargs(memory_cfg)  # ↳ Gom 4 cờ ổn định (fix 07-18).
+        # ---- BẬC 1 "Deep Self-Referential Titans" (NL.pdf §8.1): làm bộ nhớ SÂU hơn ----
+        # Paper nhấn chữ "Deep": memory MLP càng sâu / càng nhiều đầu -> biểu đạt càng mạnh,
+        # đúng tinh thần "nhiều tầng" của Nested Learning. Mặc định depth=2, heads=1 = GIỮ
+        # NGUYÊN hành vi cũ (không thêm kwarg nào khi config vắng key -> mọi run cũ bất biến).
+        depth = int(memory_cfg.get("depth", 2))      # ↳ số lớp MLP của memory model (2 = default titans-pytorch).
+        if depth != 2:
+            # giữ expansion_factor=4.0 như default_model_kwargs của titans-pytorch, chỉ đổi depth.
+            stab_kwargs["default_model_kwargs"] = dict(depth=depth, expansion_factor=4.0)
+        heads = int(memory_cfg.get("heads", 1))      # ↳ số đầu memory song song (1 = default).
+        if heads > 1:
+            if dim % heads != 0:                     # ↳ giữ dim_inner = dim: mỗi đầu dim_head = dim/heads.
+                raise ValueError(f"memory.heads={heads} phải chia hết memory dim={dim}")
+            stab_kwargs["heads"] = heads
+            stab_kwargs["dim_head"] = dim // heads
+        self_ref = bool(memory_cfg.get("self_referential", False))  # ↳ TASK 3 (NL §8.1 Eq 79): mặc định tắt.
         self.memory = TitansMemory(
-            dim=dim, chunk_size=int(memory_cfg.get("chunk_size", 64)), **stab_kwargs  # ↳ Não có ký ức.
+            dim=dim, chunk_size=int(memory_cfg.get("chunk_size", 64)),
+            self_referential=self_ref, **stab_kwargs  # ↳ Não có ký ức (self-ref: projection tự điều biến).
         )
         self.post_norm = nn.LayerNorm(dim)  # luật C2: ổn định số sau memory  ↳ Chuẩn hoá đầu ra memory.
         self.head = nn.Linear(dim, num_classes)      # ↳ Lớp tuyến tính -> điểm số (logit) cho từng class.

@@ -1,0 +1,53 @@
+# TASK 3 — Self-Referential Titans (NL §8.1 Eq 79) trên regime dài RESISC45 9-task.
+# = g2_titans_resisc45_deep + bật self_referential (projection k/v/q tự điều biến theo ngữ cảnh).
+# So 1-BIẾN với g2_titans_resisc45_deep (chỉ khác memory.self_referential) để đo self-ref có giúp không.
+# ⚠️ CHẠY TEST TRƯỚC: pytest tests/test_self_ref_memory.py -q  (code chưa được train-kiểm-chứng).
+seed: 0
+device: auto
+
+data:
+  name: resisc45
+  hf_repo: timm/resisc45
+  root: ./data
+  num_tasks: 9
+  shuffle_classes: true
+  image_size: 224
+  batch_size: 32
+  num_workers: 2
+
+backbone:
+  name: vit_small_patch16_224
+  pretrained: true
+  freeze: true
+
+memory:
+  enabled: true
+  dim: auto
+  chunk_size: 32
+  seq: image_seq
+  reset: never
+  gated_transition: true
+  spectral_norm_surprises: true
+  qk_rmsnorm: true
+  max_grad_norm: 1.0
+  depth: 3
+  heads: 2
+  self_referential: true   # <-- TASK 3: tráo projection cố định -> context-adaptive (Eq 79)
+
+train:
+  method: titans
+  optimizer: m3
+  epochs_per_task: 3
+  lr: 0.001
+  weight_decay: 0.01
+  eval_future: true
+  m3:
+    alpha: 0.5
+    frequency: 16
+    beta_style: delta
+    delta:
+      alpha: [0.999, 0.9999]
+      eta:   [0.1, 0.05]
+
+log:
+  dir: ./artifacts_titans_resisc45_selfref
