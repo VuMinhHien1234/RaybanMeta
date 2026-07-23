@@ -65,6 +65,25 @@ của paper, theo cái thang Eq 76 → 79 → 82. Mỗi bậc là 1 task độc 
 - **Ước lượng:** 4-7 ngày. **Rủi ro số học cao** — bắt buộc bám log norm(state).
 - **Phụ thuộc:** TASK 3.
 
+### ✅ ĐÃ CÀI (2026-07-23) — nhánh `task4-self-modifying-value`
+- **Cách làm (bám triết lý Task 3: BỌC, không rebuild → version-agnostic với titans-pytorch 0.5.5):**
+  value không còn tĩnh `v=to_values(x)` mà `v = ContextGate(x) + β·tanh(W_state·summary(M_{t-1}))`.
+  `summary(M_{t-1})` = [mean, rms, mean_abs, max_abs] nén-log của trọng số memory, được BƠM vào
+  value-projection ngay trước mỗi `store_memories` (bọc method, đọc tham số `weights` = M_{t-1}).
+- **An toàn số:** `W_state` init = 0 → nhánh Task 4 = 0 lúc đầu → **output TRÙNG Task 3** (so 1-biến
+  sạch, khởi đầu ổn định); `tanh` chặn nhánh state → bounded; summary được **detach** (không mở
+  thêm đường gradient vào M_{t-1}, giữ nguyên per_sample_grad_fn của titans).
+- **File:** `models/self_ref_memory.py` (+`SelfModifyingValueProjection`, `summarize_memory_state`,
+  `make_self_modifying`, `_install_store_hook`, `build_self_modifying_neural_memory`);
+  sửa `models/memory.py`, `models/titans_head.py`; config `configs/g2_titans_resisc45_selfmod.yaml`
+  (cờ `memory.self_modifying: true`, bao trùm self_referential); test `tests/test_self_modifying_memory.py`.
+- **CÒN PHẢI CHẠY (trên GCP, nơi có torch+titans):**
+  1. `pytest tests/test_self_modifying_memory.py -q` — xác nhận init trung tính, đổi state→đổi value,
+     norm(state) không nổ. *(Chưa chạy được trong sandbox: proxy không tải nổi torch.)*
+  2. `.venv/bin/python scripts/run_g1.py --config configs/g2_titans_resisc45_selfmod.yaml`
+     rồi so 1-biến với **selfref (Task 3): avg_acc 0.2503 / forgetting 0.7193**.
+  3. Đọc log `norm(state)` xuyên 9 task TRƯỚC khi tin accuracy (rủi ro số học cao).
+
 ## TASK 5 — Meta-learned initial state (Eq 72, 79-82) — độ khó CAO (vòng ngoài)
 - **Mục tiêu:** trạng thái khởi tạo memory M_0 được **meta-học qua các task** (thay vì zero/cố định).
   Paper nói init meta-học là thiết yếu cho fast-adaptation + ổn định + chống nhiễu.
