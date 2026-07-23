@@ -175,6 +175,24 @@ def main() -> int:
     print(f"  Average Accuracy   : {metrics['average_accuracy']:.4f}  (cao = tốt)")
     print(f"  Average Forgetting : {metrics['average_forgetting']:.4f}  (thấp = tốt — con số dự án cần giảm)")
     print(f"  Backward Transfer  : {metrics['backward_transfer']:.4f}  (âm = quên)")
+
+    # ĐÒN A: nếu bật train.eval_ncm_head, log có ma trận NCM-head -> tính + lưu + so sánh.
+    if "ncm_R" in log:
+        Rn = np.asarray(log["ncm_R"])
+        ncm_metrics = {
+            "readout": "ncm_head_posthoc",
+            "average_accuracy": average_accuracy(Rn),
+            "average_forgetting": average_forgetting(Rn),
+            "backward_transfer": backward_transfer(Rn),
+        }
+        pd.DataFrame(Rn, index=[f"after_task{i}" for i in range(len(stream))], columns=cols) \
+            .to_csv(out / "acc_matrix_ncm.csv", float_format="%.4f")
+        (out / "metrics_ncm.json").write_text(json.dumps(ncm_metrics, indent=2), encoding="utf-8")
+        print("\n== ĐÒN A — NCM-head (prototype trên feature sau memory, KHÔNG train lại)")
+        print(f"  Linear-head : Acc {metrics['average_accuracy']:.4f} | Forget {metrics['average_forgetting']:.4f}")
+        print(f"  NCM-head    : Acc {ncm_metrics['average_accuracy']:.4f} | Forget {ncm_metrics['average_forgetting']:.4f}")
+        print(f"  Mốc NCM gốc : Acc 0.6933 | Forget 0.1000  (vượt được = head Linear là nút thắt)")
+
     print(f"  Saved -> {out}")
     return 0
 

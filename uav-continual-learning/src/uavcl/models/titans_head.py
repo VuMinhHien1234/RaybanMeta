@@ -134,8 +134,11 @@ class TitansClassifier(nn.Module):
             return feats
         return self.backbone(x)  # (B, D) pooled  ↳ image_seq: lấy thẳng feature đã gộp.
 
-    # -------------------------------------------------------------- forward
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    # ------------------------------------------------------------- features
+    def features(self, x: torch.Tensor) -> torch.Tensor:
+        """Feature SAU memory (vector h trước head) — (B, D). Dùng cho head Linear và cho
+        NCM-head (đòn A): đọc chính feature đã-được-memory-làm-giàu bằng prototype thay vì Linear.
+        Giữ NGUYÊN luật vòng đời state: train thì nối+ghi (detach); eval thì đọc BẢN SAO, không ghi."""
         feats = self._extract(x)          # ↳ Bước 1: ảnh -> feature.
         seq = self.adapter(feats)  # (1, L, D)  ↳ Bước 2: feature -> chuỗi cho memory.
 
@@ -151,9 +154,12 @@ class TitansClassifier(nn.Module):
                 init = clone_state(self._state)  # ↳ LUẬT 2: eval trên BẢN SAO ký ức, không làm bẩn state thật.
             out, _ = self.memory(seq, state=init)  # ↳ Bỏ qua state mới (dấu "_") -> không ghi khi eval.
 
-        h = self.post_norm(self.adapter.restore(out) + self.adapter.restore(seq))  # residual
-        # ↳ Bước 3: gấp chuỗi về (B,D); cộng residual (đầu vào + đầu ra memory) rồi chuẩn hoá -> ổn định, đỡ mất tín hiệu gốc.
-        return self.head(h)  # ↳ Bước 4: (B,D) -> (B, num_classes) logits.
+        return self.post_norm(self.adapter.restore(out) + self.adapter.restore(seq))  # residual + chuẩn hoá
+        # ↳ Gấp chuỗi về (B,D); cộng residual (đầu vào + đầu ra memory) rồi chuẩn hoá -> ổn định, đỡ mất tín hiệu gốc.
+
+    # -------------------------------------------------------------- forward
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.head(self.features(x))  # ↳ (B,D) feature sau memory -> (B, num_classes) logits.
 
     # ------------------------------------------------------- state lifecycle
     def reset_state(self) -> None:

@@ -77,12 +77,49 @@ của paper, theo cái thang Eq 76 → 79 → 82. Mỗi bậc là 1 task độc 
   `make_self_modifying`, `_install_store_hook`, `build_self_modifying_neural_memory`);
   sửa `models/memory.py`, `models/titans_head.py`; config `configs/g2_titans_resisc45_selfmod.yaml`
   (cờ `memory.self_modifying: true`, bao trùm self_referential); test `tests/test_self_modifying_memory.py`.
-- **CÒN PHẢI CHẠY (trên GCP, nơi có torch+titans):**
-  1. `pytest tests/test_self_modifying_memory.py -q` — xác nhận init trung tính, đổi state→đổi value,
-     norm(state) không nổ. *(Chưa chạy được trong sandbox: proxy không tải nổi torch.)*
-  2. `.venv/bin/python scripts/run_g1.py --config configs/g2_titans_resisc45_selfmod.yaml`
-     rồi so 1-biến với **selfref (Task 3): avg_acc 0.2503 / forgetting 0.7193**.
-  3. Đọc log `norm(state)` xuyên 9 task TRƯỚC khi tin accuracy (rủi ro số học cao).
+### ✅ KẾT QUẢ (2026-07-23) — Task 4 XONG, tiêu chí đạt
+- **v1 (summary gộp 4 số):** avg_acc 0.2474 / forget 0.7127 — hoà với selfref (nhánh gần như chưa kích hoạt).
+- **v2 "tăng lực" (summary NỐI 4 thống kê/ma trận, ~24 chiều):** **avg_acc 0.6214 / forget 0.2420** — nhảy vọt.
+- **Kiểm chứng seed0:** `|W_state|` tăng đều 0→26.4 (nhánh sống thật); β~1.0; norm(state) **phẳng ~54**
+  (v1 phình 392→2785) → vòng self-modifying tự ổn định. 0.62 < NCM 0.69/replay 0.79 (không phi lý).
+- **Bài học cốt lõi:** "chất lượng biểu diễn M" là trục thống trị (4→24 chiều = +0.37 acc).
+- **Đang xác nhận:** seed 1 (robust), và hướng-1 (self-mod cho k/q, nhánh `memory_titan_task4_v2`).
+
+---
+
+## TRƯỚC TASK 5 — 3 đòn bẩy đóng khoảng cách 0.62 → mốc thắng (Acc ≥ 0.72, Forget ≤ 0.1)
+
+> Mốc từ `docs/KET_LUAN_G1.md`: PHẢI vượt **NCM 0.6933**; mơ tới **replay 0.7937**; Forget ≤ 0.1;
+> floats ≪ 135M (selfmod ~25M — đã đạt trục chi phí). Làm TỪNG cái, **so 1-biến**, **đa seed** rồi mới tin.
+
+### ĐÒN A — NCM-head trên feature sau memory (nghi phạm forgetting = head Linear) ✅ ĐÃ CÀI (test rẻ)
+- **Giả thuyết:** `head = nn.Linear` train-liên-tục tự quên; NCM (prototype class-mean) gần như không quên.
+- **Test rẻ (không train lại):** sau mỗi task, dựng prototype từ FEATURE SAU MEMORY của train đã thấy,
+  phân loại test bằng cosine → prototype. So Acc/Forget với head Linear và với NCM gốc 0.6933.
+- **File:** `models/titans_head.py` (+`features()`); `engine.py` (`_memory_prototypes`, `_evaluate_ncm`,
+  hook trong `run_continual` sau mỗi task); `scripts/run_g1.py` (in + lưu `metrics_ncm.json`/`acc_matrix_ncm.csv`).
+  Bật bằng cờ `train.eval_ncm_head=true` (mặc định TẮT → run cũ bất biến).
+- **Chạy:** `.venv/bin/python scripts/run_g1.py --config configs/g2_titans_resisc45_selfmod.yaml \`
+  `--set train.eval_ncm_head=true --set log.dir=./artifacts_titans_resisc45_ncmhead`
+- **Đọc:** NCM-head **> head Linear (0.62)** và tiến gần/qua **0.69** → xác nhận head là nút thắt →
+  làm bản đầy đủ (readout NCM cố định thay Linear, hoặc cosine/mask head). Nếu KHÔNG hơn → head không phải
+  thủ phạm, dồn sang đòn B.
+
+### ĐÒN B — tín hiệu M giàu hơn nữa (trục đã chứng minh thống trị)
+- **Ý:** thay/bổ sung summary 24-chiều bằng biểu diễn M mạnh hơn: (i) đọc **nội dung ký ức truy hồi thật**
+  (retrieved memory), không chỉ thống kê trọng số; (ii) một **phép chiếu học-được** (low-rank) của trọng số M;
+  (iii) biến nhánh self-mod từ 1 `Linear` → **MLP nhỏ** (Linear→SiLU→Linear, lớp cuối init 0 giữ trung tính).
+- **File:** `models/self_ref_memory.py` (`summarize_memory_state` + `SelfModifyingProjection`).
+- **An toàn:** giữ init trung tính + tanh-bounded + detach như hiện tại → xấu nhất = bằng bản đang có.
+
+### ĐÒN C — gỡ khoá heads>1 (thêm capacity memory)
+- **Vấn đề:** `heads>1` sinh overlapping-memory kẹt weight-decay của M3 (đã hạ về heads=1 ở `9bd1888`).
+- **Việc:** cho M3 **bỏ weight-decay trên tham số memory đa đầu** (hoặc tách nhóm param), rồi bật heads=2;
+  kèm thử `depth=4`. So 1-biến với bản heads=1 tốt nhất.
+- **Ưu tiên:** sau A/B (A/B kỳ vọng cao hơn).
+
+> **Thứ tự:** chờ seed1 + hướng-1 → **A** (rẻ, xác nhận nút thắt) → nếu ăn, làm A đầy đủ; song song **B** →
+> rồi **C** → rồi mới **Task 5**. Chạm Acc ≥ 0.72 & Forget ≤ 0.1 = "thắng có ý nghĩa" → chốt, dừng tối ưu.
 
 ## TASK 5 — Meta-learned initial state (Eq 72, 79-82) — độ khó CAO (vòng ngoài)
 - **Mục tiêu:** trạng thái khởi tạo memory M_0 được **meta-học qua các task** (thay vì zero/cố định).

@@ -51,6 +51,42 @@ def evaluate(model, loader, device, allowed: Sequence[int]) -> float:
     return correct / max(total, 1)                 # ↳ Tỉ lệ đúng (max(...,1) tránh chia 0).
 
 
+# ============================ ĐÒN A — NCM-head shadow eval ============================
+# Giả thuyết (KET_LUAN_G1): head Linear train-liên-tục là NÚT THẮT forgetting; NCM (prototype
+# class-mean) gần như KHÔNG quên. Test rẻ: KHÔNG train lại — chỉ, sau mỗi task, dựng prototype
+# từ FEATURE SAU MEMORY của dữ liệu train đã thấy, rồi phân loại test bằng cosine tới prototype.
+# Nếu accuracy NCM-head > head Linear (0.62) và tiến gần/qua NCM gốc (0.69) -> xác nhận head là
+# nút thắt, đáng làm bản đầy đủ. Bật bằng train.eval_ncm_head=true (mặc định TẮT -> run cũ bất biến).
+@torch.no_grad()
+def _memory_prototypes(model, task_loaders, device, seen_task_ids, num_classes: int, feat_dim: int):
+    """Prototype = trung bình (đã chuẩn hoá) FEATURE SAU MEMORY theo class, gộp mọi task đã thấy."""
+    model.eval()                                   # ↳ eval: model.features đọc BẢN SAO state, không ghi.
+    psum = torch.zeros(num_classes, feat_dim, device=device)
+    pcnt = torch.zeros(num_classes, device=device)
+    for tid in seen_task_ids:
+        for x, y in task_loaders[tid]["train"]:
+            x, y = x.to(device), y.to(device)
+            h = F.normalize(model.features(x).float(), dim=1)   # ↳ feature sau memory, chuẩn hoá.
+            psum.index_add_(0, y, h)                            # ↳ cộng dồn theo class.
+            pcnt.index_add_(0, y, torch.ones_like(y, dtype=torch.float))
+    return F.normalize(psum / pcnt.clamp(min=1.0).unsqueeze(1), dim=1)  # (C, D), class chưa thấy -> vector 0.
+
+
+@torch.no_grad()
+def _evaluate_ncm(model, loader, device, allowed: Sequence[int], prototypes) -> float:
+    """Accuracy khi phân loại test bằng cosine(feature-sau-memory, prototype) — mask về `allowed`."""
+    model.eval()
+    correct = total = 0
+    for x, y in loader:
+        x, y = x.to(device), y.to(device)
+        feats = F.normalize(model.features(x).float(), dim=1)
+        logits = feats @ prototypes.t()            # ↳ điểm cosine (B, C) — dùng như logits.
+        pred = mask_logits(logits, allowed).argmax(dim=1)
+        correct += int((pred == y).sum())
+        total += int(y.numel())
+    return correct / max(total, 1)
+
+
 def train_one_task(model, method, loader, device, allowed: Sequence[int], train_cfg: dict,
                    opt=None):
     """Train model trên MỘT task. Trả về (loss từng epoch, optimizer đã dùng).
@@ -148,4 +184,18 @@ def run_continual(
         if verbose:
             row = "  ".join(f"{R[t, j]:.3f}" for j in range(t + 1))
             print(f"[task {t}] test acc so far: {row}")
+
+        # ĐÒN A: NCM-head shadow eval (song song head Linear) — chỉ khi bật cờ + model có features().
+        if bool(train_cfg.get("eval_ncm_head", False)) and hasattr(model, "features") and hasattr(model, "head"):
+            if "ncm_R" not in log:
+                log["ncm_R"] = np.zeros((T, T), dtype=float)
+            protos = _memory_prototypes(
+                model, task_loaders, device, list(range(t + 1)),
+                int(model.head.out_features), int(model.head.in_features),
+            )
+            for j in range(t + 1):
+                log["ncm_R"][t, j] = _evaluate_ncm(model, task_loaders[j]["test"], device, allowed_eval, protos)
+            if verbose:
+                row = "  ".join(f"{log['ncm_R'][t, j]:.3f}" for j in range(t + 1))
+                print(f"[task {t}] NCM-head acc so far: {row}")
     return R, log                                   # ↳ Trả ma trận kết quả + log cho phần tính metric/báo cáo.
