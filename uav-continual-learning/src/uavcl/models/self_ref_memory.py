@@ -109,16 +109,22 @@ def build_self_ref_neural_memory(dim: int, chunk_size: int, **mem_kwargs):
 #     (giữ nguyên đường học của titans-pytorch qua per_sample_grad_fn), chỉ là tín hiệu điều kiện.
 # =====================================================================================
 
-_STATE_SUMMARY_DIM = 4  # [mean, rms, mean_abs, max_abs] (đã nén log) — cố định bất kể depth/heads.
+_STATS_PER_PARAM = 4    # [mean, rms, mean_abs, max_abs] (đã nén log) cho MỖI ma trận trọng số.
+_STATE_SUMMARY_DIM = _STATS_PER_PARAM  # default cho unit-test; run thật dò động qua init_weights.
 
 
 def summarize_memory_state(weights) -> "torch.Tensor | None":
-    """Tóm tắt M_{t-1} (TensorDict trọng số memory) -> tensor (bh, 4) đã nén log, DETACH.
+    """Tóm tắt M_{t-1} (TensorDict trọng số memory) -> tensor (bh, n_params*4) đã nén log, DETACH.
 
-    Mỗi tensor trọng số có shape (bh, *param) với bh = batch*heads (init_weights của titans).
-    Ta rút [mean, rms, mean_abs, max_abs] trên mỗi tham số rồi trung bình qua các tham số ->
-    (bh, 4). Nén log giữ được thứ tự độ lớn khi state phình (reset=never, chuỗi dài) mà không
-    bão hoà tanh sớm. Trả None nếu không có tensor nào (không bơm nhánh state -> về Task 3).
+    TASK 4 "tăng lực" (2026-07-23): trước đây gộp cả memory về 4 số (mean qua mọi tham số) —
+    quá mất mát, value chỉ phản ứng theo ĐỘ LỚN tổng. Nay giữ RIÊNG [mean, rms, mean_abs, max_abs]
+    của TỪNG ma trận trọng số rồi NỐI lại -> summary giàu hơn (memory depth-3 có nhiều ma trận),
+    value đọc được cấu trúc M_{t-1} chứ không chỉ độ lớn.
+
+    Mỗi tensor trọng số có shape (bh, *param), bh = batch*heads (init_weights của titans). Nén log
+    (log1p) giữ thứ tự độ lớn khi state phình (norm ~2785 ở cuối stream) mà không bão hoà tanh sớm.
+    DETACH -> chỉ là tín hiệu điều kiện, không mở thêm đường gradient vào M_{t-1}.
+    Trả None nếu không có tensor nào (không bơm nhánh state -> về Task 3).
     """
     stats = []
     for t in weights.values():
@@ -136,11 +142,11 @@ def summarize_memory_state(weights) -> "torch.Tensor | None":
             torch.log1p(rms),
             torch.log1p(mean_abs),
             torch.log1p(max_abs),
-        ], dim=1)                                   # (bh, 4)
+        ], dim=1)                                   # (bh, 4) cho ma trận này.
         stats.append(comp)
     if not stats:
         return None
-    return torch.stack(stats, dim=0).mean(dim=0)    # trung bình qua các tham số -> (bh, 4)
+    return torch.cat(stats, dim=1)                  # NỐI theo tham số -> (bh, n_params*4).
 
 
 class SelfModifyingValueProjection(ContextGatedProjection):
@@ -157,6 +163,7 @@ class SelfModifyingValueProjection(ContextGatedProjection):
         super().__init__(inner, in_dim)                       # dựng self.inner + self.to_gate (dò out_dim).
         out_dim = self.to_gate.out_features
         w = self.to_gate.weight                               # ↳ khớp device/dtype với phần Task 3.
+        self.state_summary_dim = int(state_summary_dim)
         self.to_state_value = nn.Linear(state_summary_dim, out_dim, device=w.device, dtype=w.dtype)
         nn.init.zeros_(self.to_state_value.weight)            # ↳ init 0 -> nhánh state = 0 -> = Task 3.
         nn.init.zeros_(self.to_state_value.bias)
@@ -166,6 +173,11 @@ class SelfModifyingValueProjection(ContextGatedProjection):
     def set_state_summary(self, summary) -> None:
         """Bơm summary(M_{t-1}) (hoặc None để tắt nhánh cho lần forward tới)."""
         self._state_summary = summary
+
+    def branch_strength(self):
+        """(β, ‖W_state‖) — độ 'sống' của nhánh self-modifying, để log xem nó có kích hoạt không."""
+        with torch.no_grad():
+            return float(self.state_beta), float(self.to_state_value.weight.detach().norm())
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         out = super().forward(x)                             # ↳ value theo Task 3 (context-gated).
@@ -216,7 +228,16 @@ def make_self_modifying(mem: nn.Module) -> nn.Module:
         raise TypeError("NeuralMemory không có to_values — titans-pytorch đổi cấu trúc lạ?")
     old_v = mem.to_values
     in_dim = _first_linear_in_features(old_v)
-    value_proj = SelfModifyingValueProjection(old_v, in_dim)
+    # dò ĐỘNG chiều summary từ chính init_weights của memory -> khớp đúng số ma trận (depth bất kỳ),
+    # và build to_state_value NGAY tại đây (trước khi engine dựng optimizer -> params được tối ưu).
+    sdim = _STATE_SUMMARY_DIM
+    try:
+        probe = summarize_memory_state(mem.init_weights(1))
+        if probe is not None:
+            sdim = int(probe.shape[-1])
+    except Exception:                                        # pragma: no cover - fallback an toàn.
+        pass
+    value_proj = SelfModifyingValueProjection(old_v, in_dim, state_summary_dim=sdim)
     mem.to_values = value_proj                               # đăng ký lại -> params vào graph.
     _install_store_hook(mem, value_proj)                    # nối vòng tự tham chiếu qua M_{t-1}.
     return mem

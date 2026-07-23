@@ -53,12 +53,12 @@ def test_value_depends_on_memory_state():
 
 
 def test_summarize_memory_state_shape_and_sensitivity():
-    """summary: shape (bh,4), không NaN, và state khác -> summary khác."""
-    w_a = {"l0.w": torch.zeros(1, 6, 6), "l0.b": torch.zeros(1, 6)}
+    """summary: NỐI 4 thống kê cho MỖI ma trận -> (bh, n_params*4); không NaN; state khác -> khác."""
+    w_a = {"l0.w": torch.zeros(1, 6, 6), "l0.b": torch.zeros(1, 6)}          # 2 ma trận
     w_b = {"l0.w": torch.randn(1, 6, 6) * 5.0, "l0.b": torch.randn(1, 6)}
     s_a = summarize_memory_state(w_a)
     s_b = summarize_memory_state(w_b)
-    assert s_a.shape == (1, 4) and s_b.shape == (1, 4)
+    assert s_a.shape == (1, 2 * 4) and s_b.shape == (1, 2 * 4), "2 ma trận -> 8 chiều (giàu hơn bản gộp 4)"
     assert torch.isfinite(s_a).all() and torch.isfinite(s_b).all()
     assert not torch.allclose(s_a, s_b), "state khác nhau -> summary phải khác"
     assert summarize_memory_state({}) is None, "không có tensor -> None (bỏ nhánh, về Task 3)"
@@ -80,6 +80,11 @@ def test_make_self_modifying_swaps_value_and_forwards():
     retrieved = out[0] if isinstance(out, tuple) else out
     assert retrieved.shape == (1, 16, 32)
     assert torch.isfinite(retrieved).all(), "forward không được ra NaN/Inf"
+    # summary dò động khớp số ma trận của memory; branch_strength trả (β, ‖W_state‖) hữu hạn.
+    assert mem.to_values.state_summary_dim % 4 == 0 and mem.to_values.state_summary_dim >= 4
+    beta, wnorm = mem.to_values.branch_strength()
+    assert isinstance(beta, float) and isinstance(wnorm, float)
+    assert wnorm == 0.0, "init: ‖W_state‖ = 0 (nhánh Task 4 chưa kích hoạt = trung tính)"
 
 
 def test_state_feedback_stable_and_hook_fires():

@@ -162,6 +162,14 @@ class TitansClassifier(nn.Module):
     def state_norm(self) -> float:
         return state_norm(self._state)  # ↳ Độ lớn ký ức hiện tại -> log để phát hiện phình/nổ.
 
+    def self_mod_stats(self):
+        """(β, ‖W_state‖) của nhánh self-modifying value (TASK 4) nếu có, else None — để log."""
+        mem = getattr(self.memory, "mem", None)             # ↳ NeuralMemory bên trong TitansMemory.
+        tv = getattr(mem, "to_values", None) if mem is not None else None
+        if tv is not None and hasattr(tv, "branch_strength"):
+            return tv.branch_strength()
+        return None
+
     def export_state(self):
         """State (CPU) để torch.save cùng checkpoint — S10."""
         return None if self._state is None else state_to_cpu(self._state)  # ↳ Kéo về CPU trước khi lưu file.
