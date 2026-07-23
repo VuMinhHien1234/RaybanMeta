@@ -7,9 +7,9 @@ Value KHÔNG còn tĩnh: v_t = f(x_t, summary(M_{t-1})) -> vòng tự tham chi�
   2. Self-modifying: CÙNG x, ĐỔI summary(M_{t-1}) -> value KHÁC (cốt lõi "đổi state -> đổi value").
   3. summarize_memory_state: state khác -> summary khác (và không NaN, shape cố định (bh,4)).
 2 test tích hợp (cần titans-pytorch):
-  4. make_self_modifying: to_values thành SelfModifyingValueProjection + forward giữ shape, không NaN.
+  4. make_self_modifying: CẢ BA k/v/q thành SelfModifyingProjection (hướng 1) + forward giữ shape.
   5. Ổn định + hook: forward nối state >=5 lần, norm(state) hữu hạn (không nổ) và hook có bơm
-     summary(M_{t-1}) THẬT (non-None) vào value-projection ít nhất 1 lần.
+     summary(M) THẬT vào CẢ value (store) LẪN query (retrieve) ít nhất 1 lần.
 """
 import pytest
 
@@ -18,7 +18,8 @@ import torch.nn as nn
 
 from uavcl.models.self_ref_memory import (
     ContextGatedProjection,
-    SelfModifyingValueProjection,
+    SelfModifyingProjection,
+    SelfModifyingValueProjection,  # alias của SelfModifyingProjection (giữ tương thích).
     make_self_modifying,
     summarize_memory_state,
 )
@@ -66,25 +67,25 @@ def test_summarize_memory_state_shape_and_sensitivity():
 
 # ---------------------------------------------------------------- tích hợp (cần titans-pytorch)
 
-def test_make_self_modifying_swaps_value_and_forwards():
-    """to_values -> SelfModifyingValueProjection; forward giữ shape (1,L,D), không NaN."""
+def test_make_self_modifying_swaps_all_three_and_forwards():
+    """CẢ BA k/v/q -> SelfModifyingProjection (hướng 1); forward giữ shape (1,L,D), không NaN."""
     nm = pytest.importorskip("titans_pytorch")
     mem = nm.NeuralMemory(dim=32, chunk_size=8)
     mem = make_self_modifying(mem)
-    assert isinstance(mem.to_values, SelfModifyingValueProjection)
-    # k/q vẫn context-gated (Task 3).
-    assert isinstance(mem.to_queries, ContextGatedProjection)
-    assert isinstance(mem.to_keys, ContextGatedProjection)
+    # hướng 1: value (ghi), keys (ghi), queries (đọc) đều self-modifying.
+    for attr in ("to_values", "to_keys", "to_queries"):
+        proj = getattr(mem, attr)
+        assert isinstance(proj, SelfModifyingProjection), f"{attr} phải là SelfModifyingProjection"
+        assert isinstance(proj, ContextGatedProjection)  # vẫn bao gồm context-gate của Task 3.
+        assert proj.state_summary_dim % 4 == 0 and proj.state_summary_dim >= 4
+        beta, wnorm = proj.branch_strength()
+        assert isinstance(beta, float) and isinstance(wnorm, float)
+        assert wnorm == 0.0, f"init {attr}: ‖W_state‖ = 0 (nhánh chưa kích hoạt = trung tính)"
     seq = torch.randn(1, 16, 32)
     out = mem(seq)
     retrieved = out[0] if isinstance(out, tuple) else out
     assert retrieved.shape == (1, 16, 32)
     assert torch.isfinite(retrieved).all(), "forward không được ra NaN/Inf"
-    # summary dò động khớp số ma trận của memory; branch_strength trả (β, ‖W_state‖) hữu hạn.
-    assert mem.to_values.state_summary_dim % 4 == 0 and mem.to_values.state_summary_dim >= 4
-    beta, wnorm = mem.to_values.branch_strength()
-    assert isinstance(beta, float) and isinstance(wnorm, float)
-    assert wnorm == 0.0, "init: ‖W_state‖ = 0 (nhánh Task 4 chưa kích hoạt = trung tính)"
 
 
 def test_state_feedback_stable_and_hook_fires():
@@ -94,13 +95,17 @@ def test_state_feedback_stable_and_hook_fires():
     mem = nm.NeuralMemory(dim=32, chunk_size=8)
     mem = make_self_modifying(mem)
 
-    # ghi lại xem hook có set summary non-None (tức có M_{t-1} thật) hay không.
-    seen_non_none = []
-    orig_set = mem.to_values.set_state_summary
-    def _rec(s):
-        seen_non_none.append(s is not None)
-        return orig_set(s)
-    mem.to_values.set_state_summary = _rec
+    # ghi lại xem hook có set summary non-None (tức có M thật) hay không — cho CẢ value (store)
+    # LẪN query (retrieve), để chắc hướng 1 nối đúng cả hai đường ghi/đọc.
+    seen = {"v": [], "q": []}
+    def _mk(proj, tag):
+        orig = proj.set_state_summary
+        def _rec(s):
+            seen[tag].append(s is not None)
+            return orig(s)
+        proj.set_state_summary = _rec
+    _mk(mem.to_values, "v")     # value: bơm ở store_memories.
+    _mk(mem.to_queries, "q")    # query: bơm ở retrieve_memories.
 
     def _state_norm(state) -> float:
         # state là NeuralMemState; gom norm mọi tensor trong updates/weights.
@@ -125,4 +130,5 @@ def test_state_feedback_stable_and_hook_fires():
         assert n < 1e4, f"norm(state) nổ: {n}"
         assert torch.isfinite(out).all(), "output phải hữu hạn"
 
-    assert any(seen_non_none), "hook phải bơm summary(M_{t-1}) non-None ít nhất 1 lần"
+    assert any(seen["v"]), "store-hook phải bơm summary(M) vào VALUE ít nhất 1 lần"
+    assert any(seen["q"]), "retrieve-hook phải bơm summary(M) vào QUERY ít nhất 1 lần (hướng 1)"

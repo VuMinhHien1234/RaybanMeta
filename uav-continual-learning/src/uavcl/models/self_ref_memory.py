@@ -149,14 +149,16 @@ def summarize_memory_state(weights) -> "torch.Tensor | None":
     return torch.cat(stats, dim=1)                  # NỐI theo tham số -> (bh, n_params*4).
 
 
-class SelfModifyingValueProjection(ContextGatedProjection):
-    """Value projection TỰ SINH theo trạng thái memory (Task 4).
+class SelfModifyingProjection(ContextGatedProjection):
+    """Projection (k / v / q) TỰ SINH theo trạng thái memory (Task 4 + hướng 1).
 
         base = ContextGatedProjection.forward(x)         # = Task 3 (inner(x) * context-gate)
-        v    = base + beta * tanh(W_state · summary(M_{t-1}))   # nhánh self-modifying (Task 4)
+        out  = base + beta * tanh(W_state · summary(M_{t-1}))   # nhánh self-modifying
 
-    W_state init = 0 -> nhánh Task 4 = 0 lúc đầu -> v = base (TRÙNG Task 3, init trung tính).
-    summary được set qua set_state_summary() ngay trước mỗi store; None -> bỏ nhánh (an toàn).
+    W_state init = 0 -> nhánh này = 0 lúc đầu -> out = base (TRÙNG Task 3, init trung tính).
+    summary được set qua set_state_summary() ngay trước khi projection được gọi (value/keys lúc
+    store; queries lúc retrieve); None -> bỏ nhánh (an toàn). Ban đầu chỉ value dùng cơ chế này
+    (Task 4); hướng 1 (2026-07-23) mở cho cả keys & queries -> ĐỌC ký ức cũng tự điều biến theo M.
     """
 
     def __init__(self, inner: nn.Module, in_dim: int, state_summary_dim: int = _STATE_SUMMARY_DIM):
@@ -192,44 +194,42 @@ class SelfModifyingValueProjection(ContextGatedProjection):
         return out + self.state_beta * term                 # value tự sinh theo M_{t-1}.
 
 
-def _install_store_hook(mem: nn.Module, value_proj: "SelfModifyingValueProjection") -> None:
-    """Bọc mem.store_memories: tóm tắt `weights` (=M_{t-1}) và bơm vào value_proj trước mỗi store.
+# giữ tên cũ để test/import không vỡ (value chỉ là 1 trong 3 projection dùng cùng lớp này).
+SelfModifyingValueProjection = SelfModifyingProjection
 
-    titans-pytorch gọi store_memories(store_seq, weights, seq_index=..., ...) — weights là VỊ TRÍ 2.
-    Ta không đổi luồng: chỉ set summary trước, rồi gọi bản gốc; xong dọn về None (tránh rò summary cũ
-    sang lần forward khác). weights=None (chunk đầu tiên, chưa có M) -> bỏ nhánh (về Task 3)."""
-    orig_store = mem.store_memories                          # bound method gốc (giữ nguyên).
 
-    def wrapped_store(seq, weights=None, *args, **kwargs):
+def _install_summary_hook(mem: nn.Module, method_name: str, projections: "list") -> None:
+    """Bọc mem.<method_name> (store_memories | retrieve_memories): tóm tắt `weights` (=M) và bơm
+    vào các projection liệt kê trước mỗi lần gọi, xong dọn về None.
+
+    Cả store_memories lẫn retrieve_memories của titans-pytorch đều có chữ ký (seq, weights, ...)
+    với weights là VỊ TRÍ 2 (= trạng thái memory M). store tính keys/values; retrieve tính queries.
+    weights=None (chunk đầu, chưa có M) -> bỏ nhánh (về Task 3)."""
+    orig = getattr(mem, method_name)                         # bound method gốc (giữ nguyên).
+
+    def wrapped(seq, weights=None, *args, **kwargs):
         try:
-            value_proj.set_state_summary(
-                summarize_memory_state(weights) if weights is not None else None
-            )
-            return orig_store(seq, weights, *args, **kwargs)
+            summ = summarize_memory_state(weights) if weights is not None else None
+            for p in projections:
+                p.set_state_summary(summ)
+            return orig(seq, weights, *args, **kwargs)
         finally:
-            value_proj.set_state_summary(None)               # dọn: chỉ sống trong đúng 1 store.
+            for p in projections:
+                p.set_state_summary(None)                    # dọn: chỉ sống trong đúng 1 lần gọi.
 
-    mem.store_memories = wrapped_store                       # shadow method ở cấp instance.
+    setattr(mem, method_name, wrapped)                       # shadow method ở cấp instance.
 
 
 def make_self_modifying(mem: nn.Module) -> nn.Module:
-    """Biến NeuralMemory thành SELF-MODIFYING (Task 4), bao trùm cả self-referential (Task 3).
+    """Biến NeuralMemory thành SELF-MODIFYING (Task 4 + hướng 1), bao trùm self-referential (Task 3).
 
-    - to_keys, to_queries: bọc context-gated (Task 3) như cũ.
-    - to_values: thay bằng SelfModifyingValueProjection (Task 3 gate + nhánh self-modifying Task 4).
-    - store_memories: bọc để bơm summary(M_{t-1}) vào value-projection mỗi lần store.
+    - to_values (GHI), to_keys (GHI), to_queries (ĐỌC): cả ba thay bằng SelfModifyingProjection
+      (Task 3 context-gate + nhánh tự sinh theo summary(M)). Init trung tính -> khởi đầu = Task 3.
+    - store_memories: bơm summary(M_{t-1}) vào keys + values (chúng được tính ở đây).
+    - retrieve_memories: bơm summary(M) vào queries (được tính ở đây).
     """
-    # k/q: giữ đúng Task 3 (context-gated).
-    for attr in ("to_queries", "to_keys"):
-        if hasattr(mem, attr):
-            _wrap_projection(mem, attr)
-    # v: nâng lên self-modifying (kế thừa Task 3 gate).
-    if not hasattr(mem, "to_values"):
-        raise TypeError("NeuralMemory không có to_values — titans-pytorch đổi cấu trúc lạ?")
-    old_v = mem.to_values
-    in_dim = _first_linear_in_features(old_v)
     # dò ĐỘNG chiều summary từ chính init_weights của memory -> khớp đúng số ma trận (depth bất kỳ),
-    # và build to_state_value NGAY tại đây (trước khi engine dựng optimizer -> params được tối ưu).
+    # build các to_state_value NGAY tại đây (trước khi engine dựng optimizer -> params được tối ưu).
     sdim = _STATE_SUMMARY_DIM
     try:
         probe = summarize_memory_state(mem.init_weights(1))
@@ -237,9 +237,22 @@ def make_self_modifying(mem: nn.Module) -> nn.Module:
             sdim = int(probe.shape[-1])
     except Exception:                                        # pragma: no cover - fallback an toàn.
         pass
-    value_proj = SelfModifyingValueProjection(old_v, in_dim, state_summary_dim=sdim)
-    mem.to_values = value_proj                               # đăng ký lại -> params vào graph.
-    _install_store_hook(mem, value_proj)                    # nối vòng tự tham chiếu qua M_{t-1}.
+    if not hasattr(mem, "to_values"):
+        raise TypeError("NeuralMemory không có to_values — titans-pytorch đổi cấu trúc lạ?")
+    projs = {}
+    for attr in ("to_queries", "to_keys", "to_values"):
+        if not hasattr(mem, attr):
+            continue
+        old = getattr(mem, attr)
+        p = SelfModifyingProjection(old, _first_linear_in_features(old), state_summary_dim=sdim)
+        setattr(mem, attr, p)                                # đăng ký lại -> params vào graph.
+        projs[attr] = p
+    # store tính keys+values; retrieve tính queries -> bơm summary(M) đúng nơi.
+    store_projs = [projs[a] for a in ("to_keys", "to_values") if a in projs]
+    if store_projs:
+        _install_summary_hook(mem, "store_memories", store_projs)
+    if "to_queries" in projs:
+        _install_summary_hook(mem, "retrieve_memories", [projs["to_queries"]])
     return mem
 
 

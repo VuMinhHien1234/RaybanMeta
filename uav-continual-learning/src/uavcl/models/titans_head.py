@@ -163,12 +163,16 @@ class TitansClassifier(nn.Module):
         return state_norm(self._state)  # ↳ Độ lớn ký ức hiện tại -> log để phát hiện phình/nổ.
 
     def self_mod_stats(self):
-        """(β, ‖W_state‖) của nhánh self-modifying value (TASK 4) nếu có, else None — để log."""
+        """{q|k|v: (β, ‖W_state‖)} của các nhánh self-modifying (TASK 4 + hướng 1), else None — để log."""
         mem = getattr(self.memory, "mem", None)             # ↳ NeuralMemory bên trong TitansMemory.
-        tv = getattr(mem, "to_values", None) if mem is not None else None
-        if tv is not None and hasattr(tv, "branch_strength"):
-            return tv.branch_strength()
-        return None
+        if mem is None:
+            return None
+        out = {}
+        for tag, attr in (("q", "to_queries"), ("k", "to_keys"), ("v", "to_values")):
+            proj = getattr(mem, attr, None)
+            if proj is not None and hasattr(proj, "branch_strength"):
+                out[tag] = proj.branch_strength()           # (β, ‖W_state‖)
+        return out or None
 
     def export_state(self):
         """State (CPU) để torch.save cùng checkpoint — S10."""

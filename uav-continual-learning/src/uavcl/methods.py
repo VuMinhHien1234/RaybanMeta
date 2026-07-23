@@ -246,12 +246,13 @@ class TitansCL(FineTune):
         if hasattr(model, "state_norm"):
             print(f"[titans] reset={model.reset_mode} | norm(state) sau task = {model.state_norm():.4f}")
             # ↳ In độ lớn ký ức sau mỗi task -> con số theo dõi "phình/nổ" bộ nhớ.
-        # TASK 4: log độ 'sống' của nhánh self-modifying value (β, ‖W_state‖). β·‖W_state‖ ~ 0
-        # nghĩa là nhánh chưa kích hoạt (selfmod ≈ selfref); tăng dần = value đang tự sinh theo M_{t-1}.
+        # TASK 4 + hướng 1: log độ 'sống' các nhánh self-modifying q/k/v (β, ‖W_state‖). ‖W_state‖ ~ 0
+        # = nhánh chưa kích hoạt (≈ selfref); tăng dần = projection đang tự sinh theo M_{t-1}.
         if hasattr(model, "self_mod_stats"):
             st = model.self_mod_stats()
-            if st is not None:
-                print(f"[titans]   self-mod branch: beta={st[0]:.4f} |W_state|={st[1]:.4f}")
+            if st:
+                parts = "  ".join(f"{tag}:β={b:.2f} |W|={w:.2f}" for tag, (b, w) in st.items())
+                print(f"[titans]   self-mod {parts}")
 
     def footprint_floats(self, model) -> int:
         return int(model.extra_floats()) if hasattr(model, "extra_floats") else 0
