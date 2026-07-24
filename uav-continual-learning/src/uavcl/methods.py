@@ -240,6 +240,8 @@ class TitansCL(FineTune):
     def begin_task(self, model, device, allowed: Sequence[int]) -> None:
         if getattr(model, "reset_mode", None) == "task":
             model.reset_state()  # ↳ Chế độ "task": xoá ký ức khi bắt đầu task mới.
+        if hasattr(model, "reset_eta_alpha"):
+            model.reset_eta_alpha()  # ↳ Bắt đầu đo η_t/α_t cho task này (vá lỗ hổng Task 2).
 
     @torch.no_grad()
     def end_task(self, model, loader, device, allowed: Sequence[int]) -> None:
@@ -253,6 +255,13 @@ class TitansCL(FineTune):
             if st:
                 parts = "  ".join(f"{tag}:β={b:.2f} |W|={w:.2f}" for tag, (b, w) in st.items())
                 print(f"[titans]   self-mod {parts}")
+        # η_t (tốc độ ghi, Eq 76) + α_t (cổng quên) — vá lỗ hổng Task 2: η lớn dần / α~1 = hướng NỔ norm.
+        if hasattr(model, "eta_alpha_stats"):
+            eta, alpha = model.eta_alpha_stats()
+            if eta is not None or alpha is not None:
+                es = f"{eta:.4f}" if eta is not None else "n/a"
+                as_ = f"{alpha:.4f}" if alpha is not None else "n/a"
+                print(f"[titans]   eta_t(avg)={es}  alpha_t/forget-gate(avg)={as_}")
 
     def footprint_floats(self, model) -> int:
         return int(model.extra_floats()) if hasattr(model, "extra_floats") else 0

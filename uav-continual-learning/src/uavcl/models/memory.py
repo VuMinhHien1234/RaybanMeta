@@ -58,6 +58,36 @@ class TitansMemory(nn.Module):
             self.mem = NeuralMemory(dim=self.dim, chunk_size=self.chunk_size, **mem_kwargs)  # ↳ Tạo bộ nhớ thật.
         self._no_state_kwarg = False  # version quá cũ không nhận state -> chạy không nối ký ức
         # ↳ Cờ ghi nhớ: nếu phát hiện thư viện quá cũ (không nhận tham số state) thì bật True.
+        # DIAGNOSTIC (vá lỗ hổng Task 2): đo η_t (tốc độ ghi, Eq 76) và α_t (cổng quên) — hai thứ
+        # điều khiển vụ nổ norm(state). Dùng forward-hook (chỉ ĐỌC output, KHÔNG đổi hành vi model
+        # -> zero-risk cho kết quả). Tích lũy trung bình trong 1 task, reset ở begin_task, log ở end_task.
+        self._eta_sum = 0.0; self._eta_cnt = 0     # η_t = adaptive step (to_adaptive_step, trước transform)
+        self._alpha_sum = 0.0; self._alpha_cnt = 0  # α_t = cổng quên = sigmoid(to_decay_factor) ∈ (0,1)
+        self._install_eta_alpha_probes()
+
+    def _install_eta_alpha_probes(self) -> None:
+        """Gắn forward-hook lên to_adaptive_step (η) và to_decay_factor (α) để ghi trung bình."""
+        def _eta_hook(_m, _inp, out):
+            t = out[0] if isinstance(out, tuple) else out
+            if torch.is_tensor(t) and t.numel() > 0:
+                self._eta_sum += float(t.detach().float().mean()); self._eta_cnt += 1
+        def _alpha_hook(_m, _inp, out):
+            t = out[0] if isinstance(out, tuple) else out
+            if torch.is_tensor(t) and t.numel() > 0:
+                self._alpha_sum += float(t.detach().float().sigmoid().mean()); self._alpha_cnt += 1
+        if hasattr(self.mem, "to_adaptive_step"):
+            self.mem.to_adaptive_step.register_forward_hook(_eta_hook)
+        if hasattr(self.mem, "to_decay_factor"):
+            self.mem.to_decay_factor.register_forward_hook(_alpha_hook)
+
+    def reset_eta_alpha(self) -> None:
+        self._eta_sum = self._alpha_sum = 0.0; self._eta_cnt = self._alpha_cnt = 0
+
+    def eta_alpha_stats(self):
+        """(η_t trung bình, α_t trung bình) kể từ lần reset gần nhất; None nếu chưa đo được."""
+        eta = self._eta_sum / self._eta_cnt if self._eta_cnt else None
+        alpha = self._alpha_sum / self._alpha_cnt if self._alpha_cnt else None
+        return eta, alpha
 
     def forward(self, seq: torch.Tensor, state=None):
         # ↳ seq: (1, L, D). state: ký ức trước đó (None = bắt đầu trắng).

@@ -170,6 +170,15 @@ class TitansClassifier(nn.Module):
     def state_norm(self) -> float:
         return state_norm(self._state)  # ↳ Độ lớn ký ức hiện tại -> log để phát hiện phình/nổ.
 
+    def reset_eta_alpha(self) -> None:
+        """Reset bộ đếm η_t/α_t (gọi ở begin_task) — vá lỗ hổng Task 2."""
+        if hasattr(self.memory, "reset_eta_alpha"):
+            self.memory.reset_eta_alpha()
+
+    def eta_alpha_stats(self):
+        """(η_t, α_t) trung bình trong task — η lớn / α~1 = ghi hung/không quên = hướng NỔ."""
+        return self.memory.eta_alpha_stats() if hasattr(self.memory, "eta_alpha_stats") else (None, None)
+
     def self_mod_stats(self):
         """{q|k|v: (β, ‖W_state‖)} của các nhánh self-modifying (TASK 4 + hướng 1), else None — để log."""
         mem = getattr(self.memory, "mem", None)             # ↳ NeuralMemory bên trong TitansMemory.
