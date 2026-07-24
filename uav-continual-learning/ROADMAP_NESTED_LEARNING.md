@@ -9,6 +9,39 @@ của paper, theo cái thang Eq 76 → 79 → 82. Mỗi bậc là 1 task độc 
 
 ---
 
+## 📊 TRẠNG THÁI HIỆN TẠI (cập nhật 2026-07-24)
+
+### ✅ Đã làm được
+- **Task 1–4 (cơ chế) xong**: deep memory (Bậc 1), η/α data-dependent (Eq 76), self-referential
+  projection (Task 3, context-gated), **self-modifying value (Task 4)** — đều chạy được trên RESISC45 9-task.
+- **Đòn A (NCM-head) đã cài + đo**: thay head Linear bằng prototype readout trên feature-sau-memory (test rẻ, không train lại).
+- **Hạ tầng**: 2 VM CPU chạy song song; sửa bug `.gitignore` nuốt nhầm package `src/uavcl/data` (clone bị thiếu module).
+
+### 📈 Kết quả đã đạt (RESISC45, ViT-S, 9 task — Acc ↑ / Forget ↓)
+| Cấu hình | seed 0 | seed 1 | Ghi chú |
+|---|---|---|---|
+| Task 3 selfref (M3) | 0.2503 / 0.719 | — | context-gated |
+| Task 4 selfmod v2 (M3) | **0.6214 / 0.242** (norm ~54) | **0.2508 / 0.564** (norm **NỔ 1.6 triệu**) | **KHÔNG robust qua seed** |
+| **Task 4 + NCM-head (M3)** | **0.7582 / 0.078** | 🔄 đang chạy | **vượt NCM 0.6933 + đạt mốc thắng** |
+| — mốc phải vượt | NCM **0.6933** / 0.10 | | mơ tới replay 0.7937 |
+
+- **Phát hiện LỚN:** head Linear là **nút thắt forgetting** — đọc *cùng feature* bằng prototype (NCM) nhảy **0.58 → 0.758**, forget xuống **0.078 ≤ 0.1**.
+- **Vấn đề LỚN:** selfmod v2 **nổ norm(state) ở seed 1** (54 → 1,6 triệu) → self-modifying value **chưa ổn định qua seed**; M3 (cổng quên chủ động) là **nghi phạm**.
+- **Đã loại:** hướng-1 (self-mod cho cả k/q) = 0.5777 < v2 → read-path làm hại, đã thành cờ tùy chọn tắt-mặc-định.
+
+### 🔄 Đang thực hiện (chạy song song trên 2 VM CPU)
+1. **NCM-head seed 1 & 2** — kiểm readout NCM có **bền qua vụ nổ norm** không (dùng cosine trên feature *chuẩn hóa* → scale-invariant → kỳ vọng bền).
+2. **Titans + AdamW seed 0 & 1** (kèm `eval_ncm_head`) — tách xem vụ nổ là do **M3** hay do **chính Task 4**; và kiểm NCM-head còn ăn dưới AdamW không.
+
+### ⏭️ Chờ số rồi quyết (thứ tự)
+- NCM-head **bền qua seed** → viết **bản đầy đủ: thay hẳn head Linear bằng prototype readout** → ứng viên chốt, vượt NCM một cách *robust*.
+- Nếu memory **vẫn nổ** (kể cả AdamW) → viết **dây xích norm**: kẹp trần `norm(state)` có điều kiện (B) + weight-decay/clamp nhánh self-mod (C).
+- Sau đó mới sang **Task 5** (meta-init M_0).
+
+**Nhánh chính:** `memory_titan_task4_v2` (tip có v2 + NCM-head + fix data). **Bản v2 gốc:** commit `26d17ed`.
+
+---
+
 ## BẬC 1 — Deep memory ✅ ĐÃ LÀM (2026-07-21)
 - **Đã sửa:** `src/uavcl/models/titans_head.py` đọc `memory.depth`, `memory.heads` từ config
   và truyền xuống `NeuralMemory` (`default_model_kwargs.depth`, `heads`+`dim_head`).
