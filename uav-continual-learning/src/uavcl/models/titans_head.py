@@ -103,9 +103,11 @@ class TitansClassifier(nn.Module):
             stab_kwargs["dim_head"] = dim // heads
         self_ref = bool(memory_cfg.get("self_referential", False))  # ↳ TASK 3 (NL §8.1 Eq 79): mặc định tắt.
         self_mod = bool(memory_cfg.get("self_modifying", False))    # ↳ TASK 4 (NL §8.1 cuối): value tự sinh theo M_{t-1}.
+        self_mod_rp = bool(memory_cfg.get("self_modifying_readpath", False))  # ↳ hướng 1 (k/q); mặc định tắt (v2 tốt hơn).
         self.memory = TitansMemory(
             dim=dim, chunk_size=int(memory_cfg.get("chunk_size", 64)),
-            self_referential=self_ref, self_modifying=self_mod, **stab_kwargs  # ↳ self-mod bao trùm self-ref.
+            self_referential=self_ref, self_modifying=self_mod,
+            self_modifying_readpath=self_mod_rp, **stab_kwargs  # ↳ self-mod bao trùm self-ref.
         )
         self.post_norm = nn.LayerNorm(dim)  # luật C2: ổn định số sau memory  ↳ Chuẩn hoá đầu ra memory.
         self.head = nn.Linear(dim, num_classes)      # ↳ Lớp tuyến tính -> điểm số (logit) cho từng class.

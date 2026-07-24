@@ -83,7 +83,12 @@ của paper, theo cái thang Eq 76 → 79 → 82. Mỗi bậc là 1 task độc 
 - **Kiểm chứng seed0:** `|W_state|` tăng đều 0→26.4 (nhánh sống thật); β~1.0; norm(state) **phẳng ~54**
   (v1 phình 392→2785) → vòng self-modifying tự ổn định. 0.62 < NCM 0.69/replay 0.79 (không phi lý).
 - **Bài học cốt lõi:** "chất lượng biểu diễn M" là trục thống trị (4→24 chiều = +0.37 acc).
-- **Đang xác nhận:** seed 1 (robust), và hướng-1 (self-mod cho k/q, nhánh `memory_titan_task4_v2`).
+- **hướng-1 (self-mod cho CẢ k/q — khâu đọc):** ĐO RỒI = **0.5777 / 0.2547** → **TỆ HƠN v2** (−0.044 acc).
+  Kết luận: value-only là điểm ngọt; mở sang read-path làm nhiễu retrieval. Đã biến readpath thành
+  **cờ tùy chọn `memory.self_modifying_readpath` (mặc định TẮT = v2)**; giữ hướng-1 làm ablation.
+- **seed 1 HỎNG (phải chạy lại):** lệnh dùng `--set seed=1 --set log.dir=...` — argparse `nargs="*"`
+  gặp 2 lần `--set` **chỉ giữ lần cuối** → `seed=1` bị rớt, run thực chất = seed 0 (số trùng khít 0.6214).
+  **Sửa:** gộp 1 `--set` nhiều cặp: `--set seed=1 log.dir=...`.
 
 ---
 

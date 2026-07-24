@@ -67,25 +67,34 @@ def test_summarize_memory_state_shape_and_sensitivity():
 
 # ---------------------------------------------------------------- tích hợp (cần titans-pytorch)
 
-def test_make_self_modifying_swaps_all_three_and_forwards():
-    """CẢ BA k/v/q -> SelfModifyingProjection (hướng 1); forward giữ shape (1,L,D), không NaN."""
+def test_default_is_value_only_v2():
+    """MẶC ĐỊNH (readpath=False = v2 tốt nhất): CHỈ value self-modifying; k/q context-gated (Task 3)."""
     nm = pytest.importorskip("titans_pytorch")
     mem = nm.NeuralMemory(dim=32, chunk_size=8)
-    mem = make_self_modifying(mem)
-    # hướng 1: value (ghi), keys (ghi), queries (đọc) đều self-modifying.
+    mem = make_self_modifying(mem)  # readpath mặc định = False
+    assert isinstance(mem.to_values, SelfModifyingProjection), "value phải self-modifying"
+    # k/q chỉ context-gated (KHÔNG có nhánh state) -> là ContextGatedProjection nhưng KHÔNG phải SelfModifying.
+    assert isinstance(mem.to_keys, ContextGatedProjection) and not isinstance(mem.to_keys, SelfModifyingProjection)
+    assert isinstance(mem.to_queries, ContextGatedProjection) and not isinstance(mem.to_queries, SelfModifyingProjection)
+    out = mem(torch.randn(1, 16, 32))
+    retrieved = out[0] if isinstance(out, tuple) else out
+    assert retrieved.shape == (1, 16, 32) and torch.isfinite(retrieved).all()
+
+
+def test_readpath_true_makes_all_three_self_modifying():
+    """hướng 1 (readpath=True, ablation đo ra tệ hơn): CẢ BA k/v/q -> SelfModifyingProjection."""
+    nm = pytest.importorskip("titans_pytorch")
+    mem = nm.NeuralMemory(dim=32, chunk_size=8)
+    mem = make_self_modifying(mem, readpath=True)
     for attr in ("to_values", "to_keys", "to_queries"):
         proj = getattr(mem, attr)
         assert isinstance(proj, SelfModifyingProjection), f"{attr} phải là SelfModifyingProjection"
-        assert isinstance(proj, ContextGatedProjection)  # vẫn bao gồm context-gate của Task 3.
         assert proj.state_summary_dim % 4 == 0 and proj.state_summary_dim >= 4
         beta, wnorm = proj.branch_strength()
-        assert isinstance(beta, float) and isinstance(wnorm, float)
-        assert wnorm == 0.0, f"init {attr}: ‖W_state‖ = 0 (nhánh chưa kích hoạt = trung tính)"
-    seq = torch.randn(1, 16, 32)
-    out = mem(seq)
+        assert isinstance(beta, float) and wnorm == 0.0  # init trung tính.
+    out = mem(torch.randn(1, 16, 32))
     retrieved = out[0] if isinstance(out, tuple) else out
-    assert retrieved.shape == (1, 16, 32)
-    assert torch.isfinite(retrieved).all(), "forward không được ra NaN/Inf"
+    assert retrieved.shape == (1, 16, 32) and torch.isfinite(retrieved).all()
 
 
 def test_state_feedback_stable_and_hook_fires():
@@ -93,10 +102,10 @@ def test_state_feedback_stable_and_hook_fires():
     nm = pytest.importorskip("titans_pytorch")
     torch.manual_seed(0)
     mem = nm.NeuralMemory(dim=32, chunk_size=8)
-    mem = make_self_modifying(mem)
+    mem = make_self_modifying(mem, readpath=True)  # readpath=True để test cả hook retrieve (query).
 
     # ghi lại xem hook có set summary non-None (tức có M thật) hay không — cho CẢ value (store)
-    # LẪN query (retrieve), để chắc hướng 1 nối đúng cả hai đường ghi/đọc.
+    # LẪN query (retrieve), để chắc nối đúng cả hai đường ghi/đọc.
     seen = {"v": [], "q": []}
     def _mk(proj, tag):
         orig = proj.set_state_summary

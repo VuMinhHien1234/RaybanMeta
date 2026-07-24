@@ -27,7 +27,7 @@ import torch.nn as nn
 
 class TitansMemory(nn.Module):
     def __init__(self, dim: int, chunk_size: int = 64, self_referential: bool = False,
-                 self_modifying: bool = False, **mem_kwargs):
+                 self_modifying: bool = False, self_modifying_readpath: bool = False, **mem_kwargs):
         # ↳ dim = độ dài vector; chunk_size = cứ bao nhiêu bước thì ghi ký ức 1 lần;
         #   **mem_kwargs = các cờ ổn định (gated_transition...) truyền thẳng xuống thư viện.
         #   self_referential (TASK 3, NL §8.1 Eq 79): tráo projection cố định -> context-adaptive.
@@ -40,8 +40,10 @@ class TitansMemory(nn.Module):
         self.self_referential = bool(self_referential) or self.self_modifying
         if self.self_modifying:
             # bản self-modifying (TASK 4): dựng NeuralMemory rồi nâng value tự sinh theo M_{t-1}.
+            # readpath=False (mặc định) = v2 tốt nhất (chỉ value); True = hướng 1 (thêm k/q, đo ra tệ hơn).
             from .self_ref_memory import build_self_modifying_neural_memory
-            self.mem = build_self_modifying_neural_memory(self.dim, self.chunk_size, **mem_kwargs)
+            self.mem = build_self_modifying_neural_memory(
+                self.dim, self.chunk_size, readpath=bool(self_modifying_readpath), **mem_kwargs)
         elif self.self_referential:
             # bản self-referential: dựng NeuralMemory rồi tráo to_keys/values/queries (self_ref_memory.py).
             from .self_ref_memory import build_self_ref_neural_memory

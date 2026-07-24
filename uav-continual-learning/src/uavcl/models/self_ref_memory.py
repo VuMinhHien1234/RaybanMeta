@@ -220,13 +220,15 @@ def _install_summary_hook(mem: nn.Module, method_name: str, projections: "list")
     setattr(mem, method_name, wrapped)                       # shadow method ở cấp instance.
 
 
-def make_self_modifying(mem: nn.Module) -> nn.Module:
-    """Biến NeuralMemory thành SELF-MODIFYING (Task 4 + hướng 1), bao trùm self-referential (Task 3).
+def make_self_modifying(mem: nn.Module, readpath: bool = False) -> nn.Module:
+    """Biến NeuralMemory thành SELF-MODIFYING, bao trùm self-referential (Task 3).
 
-    - to_values (GHI), to_keys (GHI), to_queries (ĐỌC): cả ba thay bằng SelfModifyingProjection
-      (Task 3 context-gate + nhánh tự sinh theo summary(M)). Init trung tính -> khởi đầu = Task 3.
-    - store_memories: bơm summary(M_{t-1}) vào keys + values (chúng được tính ở đây).
-    - retrieve_memories: bơm summary(M) vào queries (được tính ở đây).
+    readpath=False (MẶC ĐỊNH = bản v2 tốt nhất, avg_acc 0.62): CHỈ **value** tự sinh theo summary(M);
+      keys/queries chỉ context-gated (Task 3). Value là khâu GHI ký ức — đủ để có vòng tự tham chiếu.
+    readpath=True (hướng 1 — ĐO RỒI: 0.58, TỆ HƠN v2): keys & queries CŨNG tự sinh theo summary(M)
+      (khâu ĐỌC). Giữ làm ablation, KHÔNG bật mặc định vì làm giảm accuracy.
+
+    Init trung tính (mọi W_state=0) -> khởi đầu = Task 3, bất kể readpath.
     """
     # dò ĐỘNG chiều summary từ chính init_weights của memory -> khớp đúng số ma trận (depth bất kỳ),
     # build các to_state_value NGAY tại đây (trước khi engine dựng optimizer -> params được tối ưu).
@@ -239,28 +241,37 @@ def make_self_modifying(mem: nn.Module) -> nn.Module:
         pass
     if not hasattr(mem, "to_values"):
         raise TypeError("NeuralMemory không có to_values — titans-pytorch đổi cấu trúc lạ?")
-    projs = {}
-    for attr in ("to_queries", "to_keys", "to_values"):
-        if not hasattr(mem, attr):
-            continue
-        old = getattr(mem, attr)
-        p = SelfModifyingProjection(old, _first_linear_in_features(old), state_summary_dim=sdim)
-        setattr(mem, attr, p)                                # đăng ký lại -> params vào graph.
-        projs[attr] = p
-    # store tính keys+values; retrieve tính queries -> bơm summary(M) đúng nơi.
-    store_projs = [projs[a] for a in ("to_keys", "to_values") if a in projs]
-    if store_projs:
-        _install_summary_hook(mem, "store_memories", store_projs)
-    if "to_queries" in projs:
-        _install_summary_hook(mem, "retrieve_memories", [projs["to_queries"]])
+    # value LUÔN self-modifying (khâu ghi) — cốt lõi Task 4.
+    old_v = mem.to_values
+    value_proj = SelfModifyingProjection(old_v, _first_linear_in_features(old_v), state_summary_dim=sdim)
+    mem.to_values = value_proj
+    store_projs = [value_proj]
+    if readpath:
+        # hướng 1: keys (ghi) + queries (đọc) cũng self-modifying.
+        if hasattr(mem, "to_keys"):
+            old_k = mem.to_keys
+            key_proj = SelfModifyingProjection(old_k, _first_linear_in_features(old_k), state_summary_dim=sdim)
+            mem.to_keys = key_proj
+            store_projs.append(key_proj)
+        if hasattr(mem, "to_queries"):
+            old_q = mem.to_queries
+            query_proj = SelfModifyingProjection(old_q, _first_linear_in_features(old_q), state_summary_dim=sdim)
+            mem.to_queries = query_proj
+            _install_summary_hook(mem, "retrieve_memories", [query_proj])  # queries tính ở retrieve.
+    else:
+        # v2: keys/queries chỉ context-gated (Task 3).
+        for attr in ("to_queries", "to_keys"):
+            if hasattr(mem, attr):
+                _wrap_projection(mem, attr)
+    _install_summary_hook(mem, "store_memories", store_projs)  # value (+keys nếu readpath) tính ở store.
     return mem
 
 
-def build_self_modifying_neural_memory(dim: int, chunk_size: int, **mem_kwargs):
+def build_self_modifying_neural_memory(dim: int, chunk_size: int, readpath: bool = False, **mem_kwargs):
     """Dựng NeuralMemory chuẩn rồi nâng lên self-modifying (Task 4). Ném ImportError rõ nếu thiếu lib."""
     try:
         from titans_pytorch import NeuralMemory
     except ImportError as e:  # pragma: no cover
         raise ImportError("Task 4 cần titans-pytorch: pip install -U titans-pytorch") from e
     mem = NeuralMemory(dim=int(dim), chunk_size=int(chunk_size), **mem_kwargs)
-    return make_self_modifying(mem)
+    return make_self_modifying(mem, readpath=readpath)
