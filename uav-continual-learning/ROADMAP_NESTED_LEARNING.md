@@ -77,18 +77,21 @@ của paper, theo cái thang Eq 76 → 79 → 82. Mỗi bậc là 1 task độc 
   `make_self_modifying`, `_install_store_hook`, `build_self_modifying_neural_memory`);
   sửa `models/memory.py`, `models/titans_head.py`; config `configs/g2_titans_resisc45_selfmod.yaml`
   (cờ `memory.self_modifying: true`, bao trùm self_referential); test `tests/test_self_modifying_memory.py`.
-### ✅ KẾT QUẢ (2026-07-23) — Task 4 XONG, tiêu chí đạt
-- **v1 (summary gộp 4 số):** avg_acc 0.2474 / forget 0.7127 — hoà với selfref (nhánh gần như chưa kích hoạt).
-- **v2 "tăng lực" (summary NỐI 4 thống kê/ma trận, ~24 chiều):** **avg_acc 0.6214 / forget 0.2420** — nhảy vọt.
-- **Kiểm chứng seed0:** `|W_state|` tăng đều 0→26.4 (nhánh sống thật); β~1.0; norm(state) **phẳng ~54**
-  (v1 phình 392→2785) → vòng self-modifying tự ổn định. 0.62 < NCM 0.69/replay 0.79 (không phi lý).
-- **Bài học cốt lõi:** "chất lượng biểu diễn M" là trục thống trị (4→24 chiều = +0.37 acc).
-- **hướng-1 (self-mod cho CẢ k/q — khâu đọc):** ĐO RỒI = **0.5777 / 0.2547** → **TỆ HƠN v2** (−0.044 acc).
-  Kết luận: value-only là điểm ngọt; mở sang read-path làm nhiễu retrieval. Đã biến readpath thành
-  **cờ tùy chọn `memory.self_modifying_readpath` (mặc định TẮT = v2)**; giữ hướng-1 làm ablation.
-- **seed 1 HỎNG (phải chạy lại):** lệnh dùng `--set seed=1 --set log.dir=...` — argparse `nargs="*"`
-  gặp 2 lần `--set` **chỉ giữ lần cuối** → `seed=1` bị rớt, run thực chất = seed 0 (số trùng khít 0.6214).
-  **Sửa:** gộp 1 `--set` nhiều cặp: `--set seed=1 log.dir=...`.
+### KẾT QUẢ (cập nhật 2026-07-24) — cơ chế CHẠY ĐƯỢC nhưng CHƯA robust qua seed
+- **v1 (summary gộp 4 số):** 0.2474 / 0.7127 — hoà selfref (nhánh gần như chưa kích hoạt).
+- **v2 "tăng lực" (summary NỐI 4 thống kê/ma trận, ~24 chiều):**
+  - **seed 0: avg_acc 0.6214 / forget 0.2420** — norm(state) **phẳng ~54**, `|W_state|` 0→26.4 (nhánh sống thật), β~1.0.
+  - **seed 1: avg_acc 0.2508 / forget 0.5643** — norm(state) **NỔ = 1.644.728** ⚠️ (quên sạch task cũ: cột task0 0.93→0.01).
+  - → **KHÔNG robust qua seed:** cùng cơ chế, chỉ khác seed mà 0.62 vs 0.25. Trung bình ~0.44, phương sai khổng lồ.
+    Kết luận "vòng self-modifying tự ổn định" rút từ seed 0 là **VỘI** (chỉ đúng 1 seed). 4 lớp an toàn
+    (init 0, tanh, detach, log-nén) chỉ chặn *đóng góp mỗi bước*, **KHÔNG đặt trần cứng cho norm(state) tích lũy**
+    trên stream dài → seed 1 nổ. → cần dây xích norm chuyên dụng HOẶC readout scale-invariant (xem ĐÒN A).
+- **Bài học:** (1) "chất lượng biểu diễn M" là trục thống trị (4→24 chiều = +0.37 acc trên seed 0);
+  (2) **đọc norm(state) + đa seed TRƯỚC khi tin accuracy** — nhờ chạy seed 1 mới bắt được vụ nổ, tránh xây trên cát.
+- **hướng-1 (self-mod cho CẢ k/q — khâu đọc):** 0.5777 / 0.2547 → **TỆ HƠN v2** (−0.044) → value-only là điểm ngọt;
+  đã thành cờ tùy chọn `memory.self_modifying_readpath` (mặc định TẮT = v2), giữ làm ablation.
+- **Bẫy đã gặp:** `--set a=1 --set b=2` (2 lần `--set`) → argparse `nargs="*"` **chỉ giữ lần cuối** (rớt `a=1`).
+  Luôn gộp **1 `--set` nhiều cặp**: `--set seed=1 log.dir=...`. (Đây là lý do lần seed 1 đầu bị nhầm về seed 0.)
 
 ---
 
@@ -97,18 +100,23 @@ của paper, theo cái thang Eq 76 → 79 → 82. Mỗi bậc là 1 task độc 
 > Mốc từ `docs/KET_LUAN_G1.md`: PHẢI vượt **NCM 0.6933**; mơ tới **replay 0.7937**; Forget ≤ 0.1;
 > floats ≪ 135M (selfmod ~25M — đã đạt trục chi phí). Làm TỪNG cái, **so 1-biến**, **đa seed** rồi mới tin.
 
-### ĐÒN A — NCM-head trên feature sau memory (nghi phạm forgetting = head Linear) ✅ ĐÃ CÀI (test rẻ)
+### ĐÒN A — NCM-head trên feature sau memory ✅ ĐÃ CÀI + ĐO (2026-07-24): head Linear ĐÚNG là nút thắt
 - **Giả thuyết:** `head = nn.Linear` train-liên-tục tự quên; NCM (prototype class-mean) gần như không quên.
 - **Test rẻ (không train lại):** sau mỗi task, dựng prototype từ FEATURE SAU MEMORY của train đã thấy,
   phân loại test bằng cosine → prototype. So Acc/Forget với head Linear và với NCM gốc 0.6933.
 - **File:** `models/titans_head.py` (+`features()`); `engine.py` (`_memory_prototypes`, `_evaluate_ncm`,
   hook trong `run_continual` sau mỗi task); `scripts/run_g1.py` (in + lưu `metrics_ncm.json`/`acc_matrix_ncm.csv`).
   Bật bằng cờ `train.eval_ncm_head=true` (mặc định TẮT → run cũ bất biến).
-- **Chạy:** `.venv/bin/python scripts/run_g1.py --config configs/g2_titans_resisc45_selfmod.yaml \`
-  `--set train.eval_ncm_head=true --set log.dir=./artifacts_titans_resisc45_ncmhead`
-- **Đọc:** NCM-head **> head Linear (0.62)** và tiến gần/qua **0.69** → xác nhận head là nút thắt →
-  làm bản đầy đủ (readout NCM cố định thay Linear, hoặc cosine/mask head). Nếu KHÔNG hơn → head không phải
-  thủ phạm, dồn sang đòn B.
+- **Chạy:** `--set train.eval_ncm_head=true log.dir=./artifacts_titans_resisc45_ncmhead` (1 `--set` nhiều cặp!).
+- **✅ KẾT QUẢ seed 0:** Linear-head **0.5829 / 0.2739** vs **NCM-head 0.7582 / 0.0781** vs NCM gốc **0.6933 / 0.10**.
+  → NCM-head **+0.175 so head Linear**, **VƯỢT NCM gốc (+0.065)**, forget **0.078 ≤ 0.1 → ĐẠT MỐC THẮNG** (Acc≥0.72, Forget≤0.1).
+  Ý nghĩa: memory *làm giàu feature thật* (NCM trên feat-sau-memory 0.758 > NCM trên feat-thô 0.693), nhưng
+  **head Linear phí phạm bằng cách quên** → head ĐÚNG là nút thắt. Giả thuyết đòn A: xác nhận.
+- **🔄 ĐANG CHẠY — NCM-head trên seed 1:** kiểm NCM-head (cosine trên feature *chuẩn hóa* = scale-invariant) có
+  BỀN qua vụ nổ norm của seed 1 không. Bền (~0.75) → **NCM-head một mình đủ, khỏi cần dây xích** (né luôn vụ ổn định).
+  Không → nổ làm loạn *hướng* feature → cần **NCM-head + dây xích norm**.
+- **Việc tiếp (nếu seed 1 xác nhận):** viết bản ĐẦY ĐỦ — **thay hẳn head Linear bằng prototype readout** (NCM cố định),
+  chạy đa seed để chốt. Đây là ứng viên số 1 đưa kết quả vượt NCM một cách *robust*.
 
 ### ĐÒN B — tín hiệu M giàu hơn nữa (trục đã chứng minh thống trị)
 - **Ý:** thay/bổ sung summary 24-chiều bằng biểu diễn M mạnh hơn: (i) đọc **nội dung ký ức truy hồi thật**
