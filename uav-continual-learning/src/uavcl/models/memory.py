@@ -33,6 +33,14 @@ class TitansMemory(nn.Module):
         #   self_referential (TASK 3, NL §8.1 Eq 79): tráo projection cố định -> context-adaptive.
         #   self_modifying (TASK 4, NL §8.1 cuối): value TỰ SINH theo M_{t-1} (bao trùm Task 3).
         super().__init__()
+        if mem_kwargs.get("max_grad_norm") is not None:
+            try:
+                from titans_pytorch import neural_memory as neural_memory_module
+            except ImportError as e:  # pragma: no cover
+                raise ImportError(
+                    "G2 cần titans-pytorch: pip install titans-pytorch (xem README bước 4)"
+                ) from e
+            _install_zero_safe_internal_grad_clip(neural_memory_module)
         self.dim = int(dim)
         self.chunk_size = int(chunk_size)
         self.self_modifying = bool(self_modifying)

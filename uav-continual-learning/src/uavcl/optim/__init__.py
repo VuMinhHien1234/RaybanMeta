@@ -6,8 +6,8 @@
         alpha: 0.5
         frequency: 16
         ns_steps: 5
-        beta_style: ema          # ema | paper (nguyên văn Algorithm 1)
-        key_proj_eta: 0.0        # fix 07-18: xấp xỉ rank-1 của P_i (Eq.48-49) — 0=tắt (mặc định)
+        beta_style: delta        # delta (xấp xỉ dự án) | ema | paper (Algorithm 1)
+        key_proj_eta: 0.0        # phép quên rank-1 thử nghiệm của dự án; 0=tắt
 
 CMSOptimizer (G3) sẽ bọc quanh optimizer trả về từ đây — tức CMS chạy được
 trên cả AdamW lẫn M3.
@@ -50,7 +50,7 @@ def build_optimizer(params, train_cfg: dict) -> torch.optim.Optimizer:
             beta_style=str(m3_cfg.get("beta_style", "delta")),
             delta_alpha=tuple(delta_cfg.get("alpha", (0.999, 0.9999))),
             delta_eta=tuple(delta_cfg.get("eta", (0.1, 0.05))),
-            update_norm=str(m3_cfg.get("update_norm", "rms")),
+            update_norm=str(m3_cfg.get("update_norm", "clip")),
             key_proj_eta=float(m3_cfg.get("key_proj_eta", 0.0)),
         )
     raise KeyError(f"Unknown optimizer '{name}' (chọn: adamw | m3)")   # ↳ Tên lạ -> báo lỗi rõ.

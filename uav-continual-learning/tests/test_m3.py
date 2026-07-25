@@ -165,14 +165,49 @@ def test_m3_handles_all_param_shapes():
         assert torch.isfinite(p).all()
 
 
+def test_matrix_path_activates_slow_memory_and_reduces_loss():
+    """Test hội tụ phải đi qua nhánh ma trận, NS và ít nhất một update M2."""
+    torch.manual_seed(7)
+    x = torch.randn(96, 12)
+    target = x @ torch.randn(12, 4)
+    weight = torch.nn.Parameter(torch.zeros(12, 4))
+    # Clip-mode giới hạn norm toàn tensor, nên cần LR riêng lớn hơn AdamW-scale.
+    opt = M3([weight], lr=5e-2, frequency=4)
+    losses = []
+    for _ in range(200):
+        opt.zero_grad()
+        loss = ((x @ weight - target) ** 2).mean()
+        loss.backward()
+        opt.step()
+        losses.append(float(loss.detach()))
+    state = opt.state[weight]
+    assert state["step"] == 200
+    assert state["m2"].norm() > 0
+    assert losses[-1] < losses[0] * 0.1
+
+
+def test_m3_rejects_nonfinite_gradient():
+    p = torch.nn.Parameter(torch.zeros(2, 2))
+    opt = M3([p])
+    p.grad = torch.full_like(p, float("nan"))
+    with pytest.raises(FloatingPointError, match="gradient"):
+        opt.step()
+
+
+@pytest.mark.parametrize("kwargs", [{"frequency": 0}, {"ns_steps": -1}, {"eps": 0.0}])
+def test_m3_validates_numerical_hyperparameters(kwargs):
+    with pytest.raises(ValueError):
+        M3([torch.nn.Parameter(torch.zeros(2, 2))], **kwargs)
+
+
 def test_matrix_step_size_follows_lr():
     """Bug thật từ VM (‖Δw‖ 1023%/task): chế độ nguyên văn khuếch đại bước đi hàng trăm
-    lần lr khi gradient nhỏ. Chế độ 'rms' (mặc định) phải giữ bước ma trận ≈ lr."""
+    lần lr khi gradient nhỏ. Chế độ legacy 'rms' phải giữ RMS bước ma trận ≈ lr."""
     torch.manual_seed(0)
     g = torch.randn(8, 8) * 1e-4          # gradient rất nhỏ — kịch bản ViT pretrained
 
     W1 = torch.nn.Parameter(torch.zeros(8, 8))
-    opt1 = M3([W1], lr=0.01)              # mặc định update_norm="rms"
+    opt1 = M3([W1], lr=0.01, update_norm="rms")
     W1.grad = g.clone()
     opt1.step()
     rms_norm = (W1.detach()).pow(2).mean().sqrt()
@@ -185,6 +220,25 @@ def test_matrix_step_size_follows_lr():
     rms_none = (W2.detach()).pow(2).mean().sqrt()
     # chứng minh hiện tượng khuếch đại (chính là phát hiện ghi vào báo cáo)
     assert float(rms_none) > float(rms_norm) * 20
+
+
+def test_clip_mode_caps_update_without_forcing_matrix_rms():
+    """Default clip follows the reference: ||delta|| <= lr for every tensor."""
+    torch.manual_seed(0)
+    grad = torch.randn(8, 8) * 1e-4
+
+    clipped = torch.nn.Parameter(torch.zeros(8, 8))
+    opt = M3([clipped], lr=0.01)
+    clipped.grad = grad.clone()
+    opt.step()
+
+    legacy = torch.nn.Parameter(torch.zeros(8, 8))
+    opt_legacy = M3([legacy], lr=0.01, update_norm="rms")
+    legacy.grad = grad.clone()
+    opt_legacy.step()
+
+    assert float(clipped.norm()) <= 0.01 * (1.0 + 1e-5)
+    assert float(clipped.norm()) < float(legacy.norm()) / 4
 
 
 def test_newton_schulz_orthogonalizes():

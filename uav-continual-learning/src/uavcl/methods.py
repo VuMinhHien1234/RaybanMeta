@@ -325,6 +325,11 @@ class HOPE(CMS):
     @torch.no_grad()
     def end_task(self, model, loader, device, allowed: Sequence[int]) -> None:
         super().end_task(model, loader, device, allowed)  # in ‖Δw‖ per-tier
+        if hasattr(model, "state_isfinite") and not model.state_isfinite():
+            raise FloatingPointError(
+                "Titans memory state chứa NaN/Inf sau task. Dừng run để không ghi metrics "
+                "sai; thử giảm train.lr, bật train.grad_clip_norm, hoặc tắt từng stability flag."
+            )
         if hasattr(model, "state_norm"):
             print(f"[hope] reset={model.reset_mode} | norm(state) sau task = {model.state_norm():.4f}")
             # ↳ Con số norm(state) này chính là thứ đã lộ ra bệnh (262->302->120... Forgetting 0.956).

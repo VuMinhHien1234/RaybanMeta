@@ -98,24 +98,54 @@ class DataSource:
 # ↳ Mỗi hàm _load_* dưới đây tải 1 dataset cụ thể rồi đóng gói thành DataSource.
 def _load_resisc45(cfg: dict) -> DataSource:
     try:
-        from datasets import load_dataset      # ↳ Thư viện HuggingFace `datasets`; có thể chưa cài.
+        from collections import Counter
+
+        from datasets import concatenate_datasets, load_dataset
     except ImportError as e:  # pragma: no cover
         raise ImportError(
             "RESISC45 cần thư viện HuggingFace `datasets`: pip install datasets"
         ) from e
 
-    repo = cfg.get("hf_repo", "timm/resisc45")  # ↳ Kho dữ liệu trên HuggingFace (đổi được qua config).
-    root = cfg.get("root", "./data")            # ↳ Thư mục lưu cache.
-    ds = load_dataset(repo, cache_dir=str(Path(root) / "hf_cache"))  # ↳ Tải (hoặc lấy từ cache) dataset.
-    feat = ds["train"].features["label"]        # ↳ Metadata của cột nhãn: biết số class và tên class.
+    repo = cfg.get("hf_repo", "timm/resisc45")
+    root = cfg.get("root", "./data")
+    hf = load_dataset(repo, cache_dir=str(Path(root) / "hf_cache"))
+    split_names = [name for name in ("train", "validation", "test") if name in hf]
+    split_names.extend(name for name in hf if name not in split_names)
+    parts = [hf[name] for name in split_names]
+    base = concatenate_datasets(parts) if len(parts) > 1 else parts[0]
+    feat = base.features["label"]
+    labels = [int(y) for y in base["label"]]
+
+    expected_total = int(cfg.get("expected_total_samples", 31500))
+    expected_per_class = int(cfg.get("expected_samples_per_class", 700))
+    counts = Counter(labels)
+    bad_counts = {
+        int(cls): int(counts.get(cls, 0))
+        for cls in range(feat.num_classes)
+        if counts.get(cls, 0) != expected_per_class
+    }
+    if len(base) != expected_total or bad_counts:
+        raise RuntimeError(
+            "RESISC45 cache/split không đầy đủ: "
+            f"total={len(base)} (cần {expected_total}), "
+            f"class_counts_sai={bad_counts}. Không chạy benchmark trên hai nguồn dữ liệu khác nhau."
+        )
+
+    seed = int(cfg.get("split_seed", 0))
+    trainval, test = stratified_split(range(len(labels)), labels, fraction=0.10, seed=seed)
+    train, val = stratified_split(trainval, labels, fraction=1 / 9, seed=seed + 1)
+
+    def take(indices: List[int]) -> HFSplit:
+        return HFSplit(base.select(indices))
+
     return DataSource(
         name="resisc45",
-        num_classes=feat.num_classes,           # ↳ Số class lấy thẳng từ metadata.
-        class_names=list(feat.names),           # ↳ Tên class lấy thẳng từ metadata.
+        num_classes=feat.num_classes,
+        class_names=list(feat.names),
         splits={
-            "train": HFSplit(ds["train"]),       # ↳ RESISC45 có sẵn 3 split -> bọc thẳng.
-            "val": HFSplit(ds["validation"]),
-            "test": HFSplit(ds["test"]),
+            "train": take(train),
+            "val": take(val),
+            "test": take(test),
         },
     )
 

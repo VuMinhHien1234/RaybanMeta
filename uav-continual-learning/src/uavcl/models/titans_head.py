@@ -170,6 +170,9 @@ class TitansClassifier(nn.Module):
     def state_norm(self) -> float:
         return state_norm(self._state)  # ↳ Độ lớn ký ức hiện tại -> log để phát hiện phình/nổ.
 
+    def state_isfinite(self) -> bool:
+        return state_isfinite(self._state)
+
     def reset_eta_alpha(self) -> None:
         """Reset bộ đếm η_t/α_t (gọi ở begin_task) — vá lỗ hổng Task 2."""
         if hasattr(self.memory, "reset_eta_alpha"):

@@ -5,7 +5,7 @@ torch = pytest.importorskip("torch")
 
 from uavcl.models.seq_adapter import SeqAdapter                     # noqa: E402
 from uavcl.models.state_utils import (                              # noqa: E402
-    clone_state, count_floats, detach_state, state_norm,
+    clone_state, count_floats, detach_state, state_isfinite, state_norm,
 )
 
 
@@ -53,3 +53,11 @@ def test_state_utils_roundtrip():
     assert state_norm(s) > 0.0
     assert state_norm(None) == 0.0
     assert count_floats(s) == 4 * 4 + 3
+    assert state_isfinite(s)
+
+
+def test_state_isfinite_detects_nested_nan():
+    s = _fake_state()
+    with torch.no_grad():
+        s.weights["w1"][0, 0] = float("nan")
+    assert not state_isfinite(s)

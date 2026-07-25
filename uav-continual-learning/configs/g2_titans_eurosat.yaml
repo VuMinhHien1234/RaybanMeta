@@ -40,11 +40,14 @@ train:
   epochs_per_task: 3
   lr: 0.001                # chỉ train memory + head -> lr cao hơn full-finetune một chút
   weight_decay: 0.01
+  grad_clip_norm: 1.0
+  optimizer_per_task: false
   eval_future: false       # bật true ở bậc C để đo FWT
   m3:
     alpha: 0.5
     frequency: 16
     beta_style: delta      # Delta Momentum (Eq. 48-49): chi ghi (g - m), cong quen alpha rieng
+    update_norm: clip      # chi co update khi norm > 1; khong khuech dai update nho
     delta:
       alpha: [0.999, 0.9999] # cong quen (ky uc nhanh, cham)
       eta:   [0.1, 0.05]     # toc do ghi (ky uc nhanh, cham)

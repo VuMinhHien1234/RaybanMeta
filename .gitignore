@@ -1,7 +1,9 @@
+# Local/personal folders
+/An/
 
 result_test/
 *.tgz
 *.pt
 .venv/
-data/
+/data/
 __pycache__/
