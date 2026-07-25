@@ -33,6 +33,19 @@ def run_dir_name(cfg: dict, method_name: str) -> str:
     opt = str(cfg.get("train", {}).get("optimizer", "adamw")).lower()
     if opt != "adamw":
         name += f"_{opt}"
+    if opt == "m3":
+        m3_cfg = dict(cfg.get("train", {}).get("m3", {}) or {})
+        style = str(m3_cfg.get("beta_style", "delta")).lower()
+        norm = str(m3_cfg.get("update_norm", "clip")).lower()
+        frequency = int(m3_cfg.get("frequency", 16))
+        alpha = float(m3_cfg.get("alpha", 0.5))
+        lr = float(cfg.get("train", {}).get("lr", 3e-4))
+        name += f"_{style}_{norm}_f{frequency}_lr{lr:g}"
+        if alpha != 0.5:
+            name += f"_a{alpha:g}"
+        key_proj_eta = float(m3_cfg.get("key_proj_eta", 0.0))
+        if key_proj_eta:
+            name += f"_kp{key_proj_eta:g}"
     mem_cfg = cfg.get("memory") or {}
     if mem_cfg.get("enabled", False):  # 3 bậc reset A/B/C KHÔNG được ghi đè/skip lẫn nhau
         name += f"_r{str(mem_cfg.get('reset', 'image')).lower()}"
@@ -42,6 +55,12 @@ def run_dir_name(cfg: dict, method_name: str) -> str:
     if cms_cfg.get("enabled", False):
         periods = "-".join(str(t[1]) for t in cms_cfg.get("tiers", []))
         name += f"_{cms_cfg.get('order', 'late_slow')}_p{periods}"
+    split_protocol = str(cfg.get("data", {}).get("split_protocol", "")).strip().lower()
+    if split_protocol:
+        safe_protocol = "".join(c for c in split_protocol if c.isalnum() or c in "-_")
+        if not safe_protocol:
+            raise ValueError("data.split_protocol phải chứa ít nhất một ký tự chữ hoặc số")
+        name += f"_split{safe_protocol}"
     return name
 
 
@@ -123,12 +142,24 @@ def main() -> int:
     else:
         model = ContinualClassifier(backbone, feat_dim, source.num_classes).to(device)
     method = build_method(method_name, cfg)
+    out.mkdir(parents=True, exist_ok=True)
+    save_config(cfg, out / "config.yaml")
 
     # --- run ---
     cms_cfg = cfg.get("cms") or {}
     if cms_cfg.get("enabled", False):
         cfg["train"]["cms"] = cms_cfg  # engine đọc từ train_cfg -> dùng CMSOptimizer (G3)
-    R, log = run_continual(model, method, stream, loaders, device, cfg["train"])
+    try:
+        R, log = run_continual(model, method, stream, loaders, device, cfg["train"])
+    except Exception as exc:
+        failure = {
+            "status": "failed",
+            "exception": type(exc).__name__,
+            "message": str(exc),
+            "runtime_sec": round(time.time() - t0, 1),
+        }
+        (out / "failure.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
+        raise
 
     # --- metrics + save ---
     metrics = {
@@ -138,6 +169,7 @@ def main() -> int:
         "num_tasks": len(stream),
         "backbone": cfg["backbone"]["name"],
         "optimizer": str(cfg["train"].get("optimizer", "adamw")).lower(),
+        "lr": float(cfg["train"].get("lr", 3e-4)),
         "optimizer_per_task": bool(cfg["train"].get("optimizer_per_task", True)),
         "average_accuracy": average_accuracy(R),
         "average_forgetting": average_forgetting(R),
@@ -154,12 +186,14 @@ def main() -> int:
     if cms_cfg.get("enabled", False):
         metrics["cms_order"] = cms_cfg.get("order", "late_slow")
         metrics["cms_periods"] = "-".join(str(t[1]) for t in cms_cfg.get("tiers", []))
-    out.mkdir(parents=True, exist_ok=True)  # out đã tính từ run_dir_name ở đầu main
+    if str(cfg["train"].get("optimizer", "adamw")).lower() == "m3":
+        metrics["m3"] = dict(cfg["train"].get("m3", {}) or {})
+    metrics["grad_clip_norm"] = cfg["train"].get("grad_clip_norm")
     cols = [f"task{j}" for j in range(len(stream))]
     pd.DataFrame(R, index=[f"after_task{i}" for i in range(len(stream))], columns=cols) \
         .to_csv(out / "acc_matrix.csv", float_format="%.4f")
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
-    save_config(cfg, out / "config.yaml")
+    (out / "train_log.json").write_text(json.dumps(log, indent=2), encoding="utf-8")
     if hasattr(model, "export_state"):  # G2 (S10): lưu "cục ký ức" cuối stream
         st = model.export_state()
         if st is not None:

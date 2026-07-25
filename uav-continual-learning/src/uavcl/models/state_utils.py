@@ -9,6 +9,7 @@ thuộc vào version cụ thể của thư viện.
 - clone_state  : bản sao độc lập — dùng khi eval ("chấm thi không ghi trí nhớ").
 - state_to_cpu : chuyển về CPU để torch.save (checkpoint S10).
 - state_norm   : độ lớn tổng của state — log mỗi task để phát hiện "phình" (C2).
+- state_isfinite: kiểm tra NaN/Inf trong state — chặn run hỏng trước khi ghi metrics.
 - count_floats : đếm phần tử — báo cáo chi phí bộ nhớ.
 """
 # ↳ GIẢI THÍCH TỔNG QUAN: "state" = cục ký ức của Titans. Nó KHÔNG phải 1 tensor
@@ -97,6 +98,17 @@ def state_norm(state) -> float:
         if t.is_floating_point() and t.numel() > 0:  # ↳ Chỉ tính tensor số thực, có phần tử.
             total += float(t.detach().float().norm()) ** 2  # ↳ Cộng bình phương norm từng tensor.
     return math.sqrt(total)                       # ↳ Căn bậc hai của tổng = norm toàn cục (như Pythagoras).
+
+
+def state_isfinite(state) -> bool:
+    """True khi mọi tensor số thực/phức trong state đều không chứa NaN/Inf."""
+    if state is None:
+        return True
+    return all(
+        bool(torch.isfinite(t).all())
+        for t in _tree_tensors(state)
+        if (t.is_floating_point() or t.is_complex()) and t.numel() > 0
+    )
 
 
 def count_floats(state) -> int:

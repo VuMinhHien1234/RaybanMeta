@@ -43,18 +43,23 @@ cms:                       # tầng TRUNG + CHẬM — cấu hình THẮNG G3 (e
   grad_agg: sum            # nguyên văn Eq. 71
   eta_mode: fixed           # S9 (TASKS_G4_SOLO §C): đổi "adaptive" để bật η tự tính theo
                              # surprise — để SAU khi 4 cờ titans-pytorch có số (1 biến/lần)
+  m3_frequency_unit: global_step
 
 train:
   method: hope             # log cả norm(state) lẫn ‖Δw‖ per-tier
   optimizer: m3
   epochs_per_task: 3
-  lr: 0.0001
+  # Study 3 seed 07-25: 5e-3 uu tien accuracy; dung 3e-3 neu uu tien retention.
+  lr: 0.005
   weight_decay: 0.01
+  grad_clip_norm: 1.0
+  optimizer_per_task: false
   eval_future: true        # FWT là điểm khoe của memory xuyên task
   m3:
     alpha: 0.5
     frequency: 16
     beta_style: delta
+    update_norm: clip      # chi co update khi norm > 1; khong khuech dai update nho
     delta:
       alpha: [0.999, 0.9999]
       eta:   [0.1, 0.05]

@@ -103,6 +103,32 @@ def test_cms_bad_eta_mode_raises():
         CMSOptimizer(inner, _tiers(p, p), eta_mode="banana")
 
 
+def test_cms_m3_frequency_is_aligned_to_global_steps(monkeypatch):
+    """p=[1,8,64], f=16 phải thành f=[16,2,1], không phải 16 cho cả ba tier."""
+    import uavcl.models.cms as cms_model
+    from uavcl.optim.cms_optimizer import build_cms_optimizer
+
+    params = [torch.nn.Parameter(torch.zeros(2, 2)) for _ in range(3)]
+    groups = [
+        {"name": name, "period": period, "eta": 1.0, "params": [p], "blocks": [i]}
+        for i, (name, period, p) in enumerate(zip(("fast", "mid", "slow"), (1, 8, 64), params))
+    ]
+    monkeypatch.setattr(cms_model, "build_cms_param_groups", lambda model, cfg: groups)
+    monkeypatch.setattr(cms_model, "tier_report", lambda groups: "tiers")
+
+    model = torch.nn.Module()
+    opt = build_cms_optimizer(
+        model,
+        {
+            "optimizer": "m3",
+            "lr": 1e-3,
+            "m3": {"frequency": 16},
+            "cms": {"m3_frequency_unit": "global_step"},
+        },
+    )
+    assert [g["frequency"] for g in opt.inner.param_groups] == [16, 2, 1]
+
+
 def test_cms_eta_scales_lr():
     p_fast = torch.nn.Parameter(torch.zeros(1))
     p_slow = torch.nn.Parameter(torch.zeros(1))

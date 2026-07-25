@@ -10,6 +10,9 @@ data:
   name: resisc45
   hf_repo: timm/resisc45
   root: ./data
+  split_protocol: combined31500_v2 # gop 3 source split, sau do chia lai 80/10/10
+  expected_total_samples: 31500
+  expected_samples_per_class: 700
   num_tasks: 9
   shuffle_classes: true
   image_size: 224
@@ -42,18 +45,23 @@ cms:
   attn: slow
   grad_agg: sum
   eta_mode: fixed          # S9: đổi "adaptive" để bật η theo surprise (1 biến/lần)
+  m3_frequency_unit: global_step
 
 train:
   method: hope
   optimizer: m3
   epochs_per_task: 3
-  lr: 0.0001
+  # Study 3 seed 07-25: 5e-3 dat 72.62% acc; 3e-3 giu kien thuc tot hon (F=-1.90%).
+  lr: 0.005
   weight_decay: 0.01
+  grad_clip_norm: 1.0
+  optimizer_per_task: false
   eval_future: true
   m3:
     alpha: 0.5
     frequency: 16
     beta_style: delta
+    update_norm: clip      # chi co update khi norm > 1; khong khuech dai update nho
     delta:
       alpha: [0.999, 0.9999]
       eta:   [0.1, 0.05]

@@ -30,7 +30,14 @@ import torch.nn as nn
 
 from .memory import TitansMemory
 from .seq_adapter import SeqAdapter
-from .state_utils import clone_state, count_floats, detach_state, state_norm, state_to_cpu
+from .state_utils import (
+    clone_state,
+    count_floats,
+    detach_state,
+    state_isfinite,
+    state_norm,
+    state_to_cpu,
+)
 
 RESET_MODES = ("image", "task", "never")  # ↳ 3 chế độ giữ ký ức hợp lệ (xem docstring).
 
@@ -120,6 +127,10 @@ class TitansClassifier(nn.Module):
         if self.training and self.reset_mode in ("task", "never"):
             # nối ký ức: xuất phát từ state hiện tại, LƯU state mới (đã detach — luật 1)
             out, new_state = self.memory(seq, state=self._state)  # ↳ Đọc + tự ghi ký ức, có nối tiếp state cũ.
+            if not torch.isfinite(out).all() or not state_isfinite(new_state):
+                raise FloatingPointError(
+                    "Titans tạo NaN/Inf trong output hoặc memory state ngay tại forward."
+                )
             if new_state is not None:
                 self._state = detach_state(new_state)  # ↳ LUẬT 1: cắt gradient nhưng giữ giá trị ký ức.
         else:
@@ -128,6 +139,8 @@ class TitansClassifier(nn.Module):
             if (not self.training) and self.reset_mode in ("task", "never") and self._state is not None:
                 init = clone_state(self._state)  # ↳ LUẬT 2: eval trên BẢN SAO ký ức, không làm bẩn state thật.
             out, _ = self.memory(seq, state=init)  # ↳ Bỏ qua state mới (dấu "_") -> không ghi khi eval.
+            if not torch.isfinite(out).all():
+                raise FloatingPointError("Titans tạo NaN/Inf trong output ngay tại forward.")
 
         h = self.post_norm(self.adapter.restore(out) + self.adapter.restore(seq))  # residual
         # ↳ Bước 3: gấp chuỗi về (B,D); cộng residual (đầu vào + đầu ra memory) rồi chuẩn hoá -> ổn định, đỡ mất tín hiệu gốc.
@@ -139,6 +152,9 @@ class TitansClassifier(nn.Module):
 
     def state_norm(self) -> float:
         return state_norm(self._state)  # ↳ Độ lớn ký ức hiện tại -> log để phát hiện phình/nổ.
+
+    def state_isfinite(self) -> bool:
+        return state_isfinite(self._state)
 
     def export_state(self):
         """State (CPU) để torch.save cùng checkpoint — S10."""

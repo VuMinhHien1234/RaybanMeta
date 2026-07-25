@@ -25,6 +25,27 @@ import torch
 import torch.nn as nn
 
 
+def _install_zero_safe_internal_grad_clip(neural_memory_module) -> None:
+    """Fix titans-pytorch<=0.4.22 soft clipping when an internal grad norm is zero."""
+    current = neural_memory_module.softclamp_grad_norm
+    if getattr(current, "_uavcl_zero_safe", False):
+        return
+
+    def zero_safe_softclamp_grad_norm(t: torch.Tensor, max_value: float) -> torch.Tensor:
+        if t.numel() == 0:
+            return t
+
+        flat = t.reshape(*t.shape[:2], -1)
+        norm = flat.norm(dim=-1, keepdim=True)
+        half_max = max_value / 2
+        clamped_norm = ((norm / half_max).tanh() * half_max) + half_max
+        scale = torch.where(norm > 0, clamped_norm / norm.clamp_min(torch.finfo(norm.dtype).tiny), 0.0)
+        return (flat * scale).reshape_as(t)
+
+    zero_safe_softclamp_grad_norm._uavcl_zero_safe = True
+    neural_memory_module.softclamp_grad_norm = zero_safe_softclamp_grad_norm
+
+
 class TitansMemory(nn.Module):
     def __init__(self, dim: int, chunk_size: int = 64, **mem_kwargs):
         # ↳ dim = độ dài vector; chunk_size = cứ bao nhiêu bước thì ghi ký ức 1 lần;
@@ -32,10 +53,13 @@ class TitansMemory(nn.Module):
         super().__init__()
         try:
             from titans_pytorch import NeuralMemory  # ↳ Lớp bộ nhớ thần kinh gốc của thư viện.
+            from titans_pytorch import neural_memory as neural_memory_module
         except ImportError as e:  # pragma: no cover
             raise ImportError(
                 "G2 cần titans-pytorch: pip install titans-pytorch (xem README bước 4)"
             ) from e
+        if mem_kwargs.get("max_grad_norm") is not None:
+            _install_zero_safe_internal_grad_clip(neural_memory_module)
         self.dim = int(dim)
         self.chunk_size = int(chunk_size)
         self.mem = NeuralMemory(dim=self.dim, chunk_size=self.chunk_size, **mem_kwargs)  # ↳ Tạo bộ nhớ thật.

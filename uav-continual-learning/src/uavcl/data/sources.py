@@ -119,20 +119,31 @@ def _split_dataset(dataset, labels: list[int], val_frac: float, test_frac: float
 
 
 def _eurosat(cfg: dict) -> DataSource:
+    from torch.utils.data import Subset
     from torchvision.datasets import EuroSAT
 
     root = Path(cfg.get("root", "./data"))
     image_size = int(cfg.get("image_size", 64))
     seed = int(cfg.get("split_seed", 0))
-    ds = EuroSAT(root=str(root), download=True, transform=_transform(image_size, train=True))
-    labels = [int(y) for y in ds.targets]
-    splits = _split_dataset(ds, labels, val_frac=0.1, test_frac=0.1, seed=seed)
-    class_names = list(getattr(ds, "classes", [f"class_{i}" for i in range(10)]))
+    base = EuroSAT(root=str(root), download=True, transform=None)
+    labels = [int(y) for y in base.targets]
+    splits = _split_dataset(base, labels, val_frac=0.1, test_frac=0.1, seed=seed)
+    for name, split in splits.items():
+        indices = list(split.dataset.indices)
+        dataset = EuroSAT(
+            root=str(root),
+            download=False,
+            transform=_transform(image_size, train=name == "train"),
+        )
+        split.dataset = Subset(dataset, indices)
+    class_names = list(getattr(base, "classes", [f"class_{i}" for i in range(10)]))
     return DataSource("eurosat", splits, len(class_names), class_names)
 
 
 def _resisc45(cfg: dict) -> DataSource:
-    from datasets import load_dataset
+    from collections import Counter
+
+    from datasets import concatenate_datasets, load_dataset
     from torch.utils.data import Dataset
     from torchvision import transforms
 
@@ -140,17 +151,34 @@ def _resisc45(cfg: dict) -> DataSource:
     repo = str(cfg.get("hf_repo", "timm/resisc45"))
     root = Path(cfg.get("root", "./data"))
     hf = load_dataset(repo, cache_dir=str(root / "hf_cache"))
-    split = hf["train"] if "train" in hf else next(iter(hf.values()))
-    names = split.features["label"].names
-    labels = [int(y) for y in split["label"]]
+    # The Hugging Face repository provides train/validation/test already, but
+    # this project uses one reproducible 80/10/10 split for every source.
+    # Combine all source splits first so no RESISC45 samples are discarded.
+    split_names = [name for name in ("train", "validation", "test") if name in hf]
+    split_names.extend(name for name in hf if name not in split_names)
+    datasets = [hf[name] for name in split_names]
+    base = concatenate_datasets(datasets) if len(datasets) > 1 else datasets[0]
+    names = base.features["label"].names
+    labels = [int(y) for y in base["label"]]
+    expected_total = int(cfg.get("expected_total_samples", 31500))
+    expected_per_class = int(cfg.get("expected_samples_per_class", 700))
+    counts = Counter(labels)
+    bad_counts = {int(cls): int(counts.get(cls, 0)) for cls in range(len(names))
+                  if counts.get(cls, 0) != expected_per_class}
+    if len(base) != expected_total or bad_counts:
+        raise RuntimeError(
+            "RESISC45 cache/split không đầy đủ: "
+            f"total={len(base)} (cần {expected_total}), "
+            f"class_counts_sai={bad_counts}. Không chạy benchmark trên hai nguồn dữ liệu khác nhau."
+        )
     tfm = transforms.Compose([transforms.Resize((image_size, image_size)), transforms.ToTensor()])
 
     class HFDataset(Dataset):
         def __len__(self):
-            return len(split)
+            return len(base)
 
         def __getitem__(self, idx):
-            row = split[int(idx)]
+            row = base[int(idx)]
             return tfm(row["image"].convert("RGB")), int(row["label"])
 
     splits = _split_dataset(HFDataset(), labels, val_frac=0.1, test_frac=0.1, seed=int(cfg.get("split_seed", 0)))

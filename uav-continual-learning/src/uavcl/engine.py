@@ -78,9 +78,14 @@ def train_one_task(model, method, loader, device, allowed: Sequence[int], train_
     for ep in range(epochs):                       # ↳ Lặp qua từng epoch.
         run, seen = 0.0, 0                          # ↳ run = tổng loss có trọng số; seen = số mẫu đã qua.
         bar = tqdm(loader, desc=f"  epoch {ep + 1}/{epochs}", leave=False)
-        for x, y in bar:                            # ↳ Duyệt từng batch.
+        for batch_idx, (x, y) in enumerate(bar):    # ↳ Duyệt từng batch.
             x, y = x.to(device), y.to(device)
             logits_full = model(x)                  # ↳ Chạy model -> điểm số cho MỌI class.
+            if not torch.isfinite(logits_full).all():
+                raise FloatingPointError(
+                    f"logits chứa NaN/Inf ở epoch={ep + 1}, batch={batch_idx + 1}. "
+                    "Run bị dừng để không tạo accuracy giả."
+                )
             logits = mask_logits(logits_full, allowed)  # ↳ Che class không thuộc task hiện tại.
             loss = F.cross_entropy(logits, y)       # ↳ Loss phân loại chính.
             pen = method.penalty(model)                                # EWC: phạt tham số
@@ -89,8 +94,19 @@ def train_one_task(model, method, loader, device, allowed: Sequence[int], train_
             extra = method.extra_batch_loss(model, x, logits_full, device)  # Replay/LwF
             if extra is not None:
                 loss = loss + extra                 # ↳ Cộng loss phụ theo batch (vd ôn bài Replay / distill LwF).
+            if not torch.isfinite(loss):
+                raise FloatingPointError(
+                    f"loss chứa NaN/Inf ở epoch={ep + 1}, batch={batch_idx + 1}."
+                )
             opt.zero_grad(set_to_none=True)         # ↳ Xoá gradient cũ.
             loss.backward()                         # ↳ Tính gradient (lan truyền ngược).
+            grad_clip = train_cfg.get("grad_clip_norm")
+            if grad_clip is not None:
+                torch.nn.utils.clip_grad_norm_(
+                    (p for p in model.parameters() if p.requires_grad),
+                    max_norm=float(grad_clip),
+                    error_if_nonfinite=True,
+                )
             opt.step()                              # ↳ Cập nhật trọng số.
             run += float(loss.detach()) * y.numel() # ↳ Cộng dồn loss (nhân số mẫu để tính trung bình đúng).
             seen += int(y.numel())
@@ -113,7 +129,13 @@ def run_continual(
     T = len(stream)                                 # ↳ Số task.
     R = np.zeros((T, T), dtype=float)               # ↳ Ma trận kết quả TxT, khởi tạo 0.
     seen: List[int] = []                            # ↳ Danh sách class đã học tính đến hiện tại.
-    log: dict = {"train_loss": {}, "task_classes": {s.task_id: s.classes for s in stream}}
+    log: dict = {
+        "train_loss": {},
+        "task_classes": {s.task_id: s.classes for s in stream},
+        "state_norm": {},
+        "state_finite": {},
+        "accuracy_after_task": {},
+    }
     # optimizer_per_task=false: ký ức gradient (M3) + pha chu kỳ CMS sống XUYÊN task (NL-đúng hơn)
     persist_opt = not bool(train_cfg.get("optimizer_per_task", True))  # ↳ Có giữ optimizer xuyên task không.
     opt_carry = None                                # ↳ Optimizer mang từ task trước sang (nếu persist).
@@ -135,6 +157,10 @@ def run_continual(
                 opt_carry = opt_used                # ↳ Nhớ optimizer để task sau dùng tiếp.
             log["train_loss"][t] = losses
         method.end_task(model, task_loaders[t]["train"], device, allowed_train)  # ↳ Móc "sau task" (EWC tính Fisher, log norm...).
+        if hasattr(model, "state_norm"):
+            log["state_norm"][t] = float(model.state_norm())
+        if hasattr(model, "state_isfinite"):
+            log["state_finite"][t] = bool(model.state_isfinite())
 
         seen += list(allowed_train)                 # ↳ Cập nhật danh sách class đã học.
         allowed_eval = sorted(seen)                 # ↳ Khi đánh giá, cho phép mọi class ĐÃ học.
@@ -145,6 +171,7 @@ def run_continual(
         if bool(train_cfg.get("eval_future", False)) and t + 1 < T:
             allowed_next = sorted(set(seen) | set(stream[t + 1].classes))
             R[t, t + 1] = evaluate(model, task_loaders[t + 1]["test"], device, allowed_next)  # ↳ Điền ô tam giác trên (FWT).
+        log["accuracy_after_task"][t] = R[t].tolist()
         if verbose:
             row = "  ".join(f"{R[t, j]:.3f}" for j in range(t + 1))
             print(f"[task {t}] test acc so far: {row}")

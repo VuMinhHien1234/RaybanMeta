@@ -32,6 +32,7 @@ cms:
   order: late_slow                   # late_slow | early_slow (ablation bắt buộc)
   attn: slow                         # quyết định team; đường lùi: freeze
   grad_agg: sum                      # sum = NGUYEN VAN Eq. 71; mean = bien the on dinh lr
+  m3_frequency_unit: global_step     # tránh CMS period x M3 frequency thành chu kỳ quá dài
 
 train:
   method: cms              # log ‖Δw‖ per-tier mỗi task
@@ -39,11 +40,14 @@ train:
   epochs_per_task: 3
   lr: 0.0001
   weight_decay: 0.01
+  grad_clip_norm: 1.0
+  optimizer_per_task: false          # giữ M1/M2/V và pha CMS xuyên task
   eval_future: false
   m3:
     alpha: 0.5
     frequency: 16
     beta_style: delta      # Delta Momentum (Eq. 48-49): chi ghi (g - m), cong quen alpha rieng
+    update_norm: clip      # chi co update khi norm > 1; khong khuech dai update nho
     delta:
       alpha: [0.999, 0.9999] # cong quen (ky uc nhanh, cham)
       eta:   [0.1, 0.05]     # toc do ghi (ky uc nhanh, cham)

@@ -34,6 +34,7 @@ def test_forward_shape_and_state_carries():
     m(x)
     assert m._state is not None and m.state_norm() >= 0.0
     assert n1 >= 0.0
+    assert m.state_isfinite()
 
 
 def test_backbone_unfrozen_but_base_frozen_by_cms():
@@ -104,3 +105,19 @@ def test_stability_flags_default_off_when_absent():
     assert nm.spectral_norm_surprises is False
     assert isinstance(nm.q_norm, torch.nn.Identity)
     assert nm.max_grad_norm is None
+
+
+def test_internal_grad_clip_is_finite_when_surprise_grad_is_zero():
+    """titans-pytorch 0.4.22 từng chia 0/0 khi internal grad norm bằng 0."""
+    mem_cfg = dict(
+        MEM,
+        gated_transition=True,
+        spectral_norm_surprises=True,
+        qk_rmsnorm=True,
+        max_grad_norm=1.0,
+    )
+    backbone = timm.create_model("resnet18", pretrained=False, num_classes=0)
+    m = HOPEClassifier(backbone, backbone.num_features, 3, mem_cfg).train()
+    out = m(torch.zeros(4, 3, 32, 32))
+    assert torch.isfinite(out).all()
+    assert m.state_isfinite()

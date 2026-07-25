@@ -12,13 +12,14 @@ M3 = Adam + Muon + CMS áp vào chính optimizer, với HAI tầng ký ức grad
   cập nhật:     Θ ← Θ − η · (O1 + α·O2) / (√V + ε)   # (dòng 10)
 
 Ba chế độ cập nhật ký ức (beta_style):
-- "delta" (MẶC ĐỊNH của dự án — Delta Momentum, Eq. 48–49 §4.3): cập nhật theo delta-rule
+- "delta" (MẶC ĐỊNH của dự án — xấp xỉ delta-rule thực dụng): cập nhật
       M ← α·M + η·(g − M)  =  (α−η)·M + η·g
   Chỉ ghi phần SAI LỆCH (g − M) — gradient mới lệch bao nhiêu so với ký ức thì ghi bấy
-  nhiêu, nên update PHỤ THUỘC TRẠNG THÁI hiện tại (điểm paper chê Hebbian không có);
-  α = cổng quên, η = tốc độ ghi — HAI NÚM TÁCH RIÊNG (α<1: chủ động quên gradient cũ).
-  Trung thực mà nói: đây là Eq. 49 với key hằng — bản key-ma-trận đầy đủ cần momentum
-  kích thước (dim×dim) cho TỪNG tham số, bất khả thi cho optimizer trên trọng số model.
+  nhiêu; α = cổng quên, η = tốc độ ghi — HAI NÚM TÁCH RIÊNG.
+  Tên cấu hình "delta" được giữ để tương thích các run cũ, nhưng đây KHÔNG phải
+  Delta Momentum Eq. 48–49 đầy đủ. Công thức đầy đủ còn có hệ số quên phụ thuộc
+  gᵀg và preconditioner P_i; repo tham khảo cài nó thành optimizer riêng, không
+  ghép trực tiếp vào M3.
   Khi α=1, η=1−β: trùng khớp "ema" (EMA là trường hợp riêng của delta).
 - "ema": M ← β·M + (1−β)·g — momentum Hebbian quen thuộc kiểu Adam/Muon (đối chứng).
 - "paper": nguyên văn Algorithm 1: M ← M + β·g, V ← V + β·g² (tích lũy kiểu AdaGrad) —
@@ -27,13 +28,9 @@ Ba chế độ cập nhật ký ức (beta_style):
 Newton–Schulz chỉ áp cho tham số dạng ma trận (ndim ≥ 2, reshape về 2D);
 bias/norm 1 chiều đi thẳng (chuẩn Muon). Weight decay kiểu decoupled (như AdamW).
 
-key_proj_eta (fix 07-18, thu hẹp "sai khác #1" ghi trong LOGIC_NESTED_LEARNING.md §5):
-Eq. 48–49 gốc dùng P_i — MA TRẬN chiếu riêng cho từng tham số — để "quên có chọn lọc
-THEO HƯỚNG gradient hiện tại" (đúng tinh thần Delta Rule, Phụ lục C: số hạng quên
-α_t·x_t·x_tᵀ là RANK-1, không phải vô hướng đều). Bản gốc của dự án dùng α vô hướng
-(quên ĐỀU mọi hướng) vì P_i đầy đủ cỡ (dim×dim) cho mỗi tham số là bất khả thi. Đây là
-XẤP XỈ RANK-1 khả thi O(dim) — không hình thành P_i, chỉ trừ đi đúng phần hình chiếu của
-m1 lên hướng gradient hiện tại:
+key_proj_eta (thử nghiệm riêng của dự án):
+Đây là phép quên theo hướng rank-1 khả thi O(dim), lấy cảm hứng từ Delta Rule nhưng
+không phải P_i của Eq. 48–49. Nó trừ phần hình chiếu của m1 lên hướng gradient:
     ĝ = g / ‖g‖ ;  m1 ← m1 − key_proj_eta · (m1 · ĝ) · ĝ    (áp SAU delta-rule chuẩn ở trên)
 key_proj_eta=0 (MẶC ĐỊNH) = tắt hẳn, giống hệt code trước khi sửa (không phá test/run cũ).
 key_proj_eta=1 = xoá sạch phần m1 đang nằm dọc hướng gradient hiện tại mỗi bước (an toàn
@@ -97,23 +94,33 @@ class M3(torch.optim.Optimizer):
         beta_style: str = "delta",          # "delta" | "ema" | "paper"
         delta_alpha: tuple = (0.999, 0.9999),  # cổng quên α (ký ức nhanh, chậm)
         delta_eta: tuple = (0.1, 0.05),        # tốc độ ghi η (ký ức nhanh, chậm)
-        update_norm: str = "rms",           # "rms" (ổn định, ngữ nghĩa lr kiểu Muon) | "none" (nguyên văn dòng 10)
+        update_norm: str = "clip",          # "clip" (reference) | "rms" (legacy) | "none" (Algorithm 1)
         key_proj_eta: float = 0.0,          # xấp xỉ rank-1 của P_i — 0 = tắt (mặc định, xem docstring)
     ):
         # VÌ SAO CÓ update_norm (bằng chứng đo được trên EuroSAT/ViT):
         # Dòng 10 Algorithm 1 chia (O1+αO2) cho sqrt(V): tử số đã bị Newton–Schulz chuẩn
         # hoá về ~O(1) (vứt độ lớn gradient), mẫu số lại ~độ lớn gradient (rất nhỏ với
         # backbone pretrained) -> bước đi khuếch đại hàng trăm lần lr -> ‖Δw‖ ~1000%/task,
-        # accuracy sập. "rms": chuẩn hoá RMS của bước ma trận về 1 rồi nhân lr — mỗi bước
-        # dịch đúng cỡ lr (như Muon). "none": nguyên văn paper, giữ cho ablation.
-        # ↳ Tóm gọn: update_norm="rms" là "cầu chì" chống bước nhảy quá lớn — bằng chứng
-        #   thực nghiệm cho thấy để "none" thì trọng số dịch ~1000%/task và accuracy sập.
+        # accuracy sập. "clip" chỉ co update khi Frobenius norm > 1, khớp implementation
+        # tham khảo và không khuếch đại update nhỏ. "rms" là hành vi legacy đã dùng trong
+        # các run 07-23: ép RMS = 1 nên bước của tensor lớn tăng theo sqrt(numel).
+        # "none" giữ nguyên dòng 10 của Algorithm 1 để làm ablation.
         if beta_style not in ("delta", "ema", "paper"):          # ↳ Kiểm tra tham số hợp lệ (fail sớm).
             raise ValueError("beta_style phải là 'delta', 'ema' hoặc 'paper'")
-        if update_norm not in ("rms", "none"):
-            raise ValueError("update_norm phải là 'rms' hoặc 'none'")
+        if update_norm not in ("clip", "rms", "none"):
+            raise ValueError("update_norm phải là 'clip', 'rms' hoặc 'none'")
         if not (0.0 <= key_proj_eta <= 1.0):
             raise ValueError(f"key_proj_eta cần trong [0, 1] (nhận {key_proj_eta})")
+        if lr < 0.0:
+            raise ValueError(f"lr phải >= 0 (nhận {lr})")
+        if int(frequency) < 1:
+            raise ValueError(f"frequency phải >= 1 (nhận {frequency})")
+        if int(ns_steps) < 0:
+            raise ValueError(f"ns_steps phải >= 0 (nhận {ns_steps})")
+        if eps <= 0.0:
+            raise ValueError(f"eps phải > 0 (nhận {eps})")
+        if weight_decay < 0.0:
+            raise ValueError(f"weight_decay phải >= 0 (nhận {weight_decay})")
         for a, e in zip(delta_alpha, delta_eta):
             if not (0.0 < e <= a <= 1.0):                        # ↳ Ràng buộc toán: 0 < η <= α <= 1.
                 raise ValueError(f"cần 0 < η <= α <= 1 (nhận α={a}, η={e})")
@@ -145,6 +152,10 @@ class M3(torch.optim.Optimizer):
                 if p.grad is None:
                     continue                       # ↳ Không có gradient (vd CMS chưa tới hạn) -> bỏ qua.
                 g = p.grad                         # ↳ g = gradient hiện tại của tham số này.
+                if g.is_sparse:
+                    raise RuntimeError("M3 chưa hỗ trợ sparse gradient")
+                if not torch.isfinite(g).all():
+                    raise FloatingPointError("M3 nhận gradient chứa NaN/Inf")
                 st = self.state[p]                 # ↳ "st" = sổ ghi nhớ RIÊNG cho tham số p (momentum...).
                 if not st:                         # ↳ Lần đầu gặp p -> khởi tạo các ký ức về 0.
                     st["step"] = 0
@@ -161,7 +172,8 @@ class M3(torch.optim.Optimizer):
 
                 # dòng 7–8: cập nhật ký ức nhanh + moment bậc 2
                 if style == "delta":
-                    # Delta Momentum (Eq. 48–49): M ← α·M + η·(g − M) = (α−η)·M + η·g
+                    # Xấp xỉ delta-rule của dự án: M <- alpha*M + eta*(g-M).
+                    # Không đồng nhất với Delta Momentum Eq. 48-49 đầy đủ.
                     st["m1"].mul_(da1 - de1).add_(g, alpha=de1)  # ↳ Cập nhật ký ức nhanh theo delta-rule.
                     if key_proj_eta > 0.0 and g.numel() > 1:
                         # xấp xỉ rank-1 của P_i (xem docstring đầu file): quên THÊM đúng phần
@@ -205,10 +217,16 @@ class M3(torch.optim.Optimizer):
                     bias_corr = 1.0 - b2 ** st["step"]        # ↳ Bù cho việc V khởi tạo bằng 0 (những bước đầu).
                     denom = (st["v"] / bias_corr).sqrt().add(eps)
                 step_dir = update / denom            # ↳ Hướng bước = tử số / sqrt(V) (chuẩn hoá theo độ lớn gradient).
-                if p.ndim >= 2 and group["update_norm"] == "rms" and style != "paper":
-                    # giữ ngữ nghĩa lr: mỗi bước dịch chuyển RMS ≈ lr (chống khuếch đại NS/√V).
-                    # KHÔNG áp cho "paper": chế độ đó là nguyên văn tuyệt đối — sqrt(V) tích lũy
-                    # của nó tự đóng vai bước-giảm-dần kiểu AdaGrad.
+                norm_mode = group["update_norm"]
+                if norm_mode == "clip":
+                    # Implementation tham khảo giới hạn norm toàn update ở 1. Khác với
+                    # legacy RMS, phép này chỉ co update lớn và không khuếch đại update nhỏ.
+                    step_norm = step_dir.norm()
+                    step_dir = step_dir / step_norm.clamp_min(1.0)
+                elif p.ndim >= 2 and norm_mode == "rms":
+                    # Chế độ legacy để tái lập run cũ: ép RMS bước ma trận = 1.
                     step_dir = step_dir / step_dir.pow(2).mean().sqrt().add(1e-12)  # ↳ "Cầu chì": ép RMS bước = 1.
+                if not torch.isfinite(step_dir).all():
+                    raise FloatingPointError("M3 tạo hướng cập nhật chứa NaN/Inf")
                 p.add_(step_dir, alpha=-lr)          # ↳ CẬP NHẬT THẬT: trọng số ← trọng số − lr·hướng_bước.
         return loss

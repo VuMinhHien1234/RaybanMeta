@@ -142,10 +142,35 @@ def build_cms_optimizer(model, train_cfg: dict) -> CMSOptimizer:
     model._cms_groups = groups  # method `cms` dùng để log ‖Δw‖ per-tier  ↳ Gắn vào model cho method dùng.
 
     base_lr = float(train_cfg.get("lr", 3e-4))
+    optimizer_name = str(train_cfg.get("optimizer", "adamw")).lower()
+    m3_cfg = dict(train_cfg.get("m3", {}) or {})
+    base_m3_frequency = int(m3_cfg.get("frequency", 16))
+    frequency_unit = str(cms_cfg.get("m3_frequency_unit", "global_step")).lower()
+    if frequency_unit not in ("global_step", "tier_step"):
+        raise ValueError("cms.m3_frequency_unit phải là 'global_step' hoặc 'tier_step'")
     inner_groups = [
-        {"params": g["params"], "lr": base_lr * float(g["eta"])} for g in groups  # ↳ lr mỗi tier = lr gốc × η.
+        {
+            "params": g["params"],
+            "lr": base_lr * float(g["eta"]),
+            # CMS đã làm tier bước thưa đi. Với global_step, quy đổi f của M3 để hai
+            # lịch không vô tình nhân nhau (p=64, f=16 -> 1024 batch mới có M2).
+            **(
+                {
+                    "frequency": max(
+                        1,
+                        (base_m3_frequency + int(g["period"]) - 1) // int(g["period"]),
+                    )
+                }
+                if optimizer_name == "m3" and frequency_unit == "global_step"
+                else {}
+            ),
+        }
+        for g in groups  # ↳ lr mỗi tier = lr gốc × η.
     ]
     inner = build_optimizer(inner_groups, train_cfg)  # ↳ Dựng optimizer thật (M3 hoặc AdamW) trên các nhóm.
+    if optimizer_name == "m3":
+        freqs = [int(pg["frequency"]) for pg in inner.param_groups]
+        print(f"[cms] M3 frequency unit={frequency_unit} | per-tier f={freqs}")
     eta_mode = str(cms_cfg.get("eta_mode", "fixed")).lower()
     if eta_mode == "adaptive":
         print("[cms] eta_mode=adaptive — η per-tier co giãn theo surprise (S9)")
