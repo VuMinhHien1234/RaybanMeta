@@ -25,6 +25,28 @@ import torch
 import torch.nn as nn
 
 
+def _install_zero_safe_internal_grad_clip(neural_memory_module) -> None:
+    """Fix titans-pytorch<=0.4.22 soft clipping when an internal grad norm is zero."""
+    current = neural_memory_module.softclamp_grad_norm
+    if getattr(current, "_uavcl_zero_safe", False):
+        return
+
+    def zero_safe_softclamp_grad_norm(t: torch.Tensor, max_value: float) -> torch.Tensor:
+        if t.numel() == 0:
+            return t
+
+        flat = t.reshape(*t.shape[:2], -1)
+        norm = flat.norm(dim=-1, keepdim=True)
+        half_max = max_value / 2
+        clamped_norm = ((norm / half_max).tanh() * half_max) + half_max
+        safe_norm = norm.clamp_min(torch.finfo(norm.dtype).tiny)
+        scale = torch.where(norm > 0, clamped_norm / safe_norm, 0.0)
+        return (flat * scale).reshape_as(t)
+
+    zero_safe_softclamp_grad_norm._uavcl_zero_safe = True
+    neural_memory_module.softclamp_grad_norm = zero_safe_softclamp_grad_norm
+
+
 class TitansMemory(nn.Module):
     def __init__(self, dim: int, chunk_size: int = 64, self_referential: bool = False,
                  self_modifying: bool = False, self_modifying_readpath: bool = False, **mem_kwargs):

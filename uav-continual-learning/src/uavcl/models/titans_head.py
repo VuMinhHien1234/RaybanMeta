@@ -30,7 +30,14 @@ import torch.nn as nn
 
 from .memory import TitansMemory
 from .seq_adapter import SeqAdapter
-from .state_utils import clone_state, count_floats, detach_state, state_norm, state_to_cpu
+from .state_utils import (
+    clone_state,
+    count_floats,
+    detach_state,
+    state_isfinite,
+    state_norm,
+    state_to_cpu,
+)
 
 RESET_MODES = ("image", "task", "never")  # ↳ 3 chế độ giữ ký ức hợp lệ (xem docstring).
 
