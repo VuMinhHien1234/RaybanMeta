@@ -48,3 +48,28 @@ def test_m3_run_name_separates_nondefault_alpha():
     ablation_name = run_g1.run_dir_name(base, "hope")
     assert default_name != ablation_name
     assert "_a0.1" in ablation_name
+
+
+def test_paper_strict_and_stabilized_run_names_do_not_collide():
+    run_g1 = _run_module()
+    base = {
+        "seed": 0,
+        "data": {"name": "eurosat"},
+        "experiment": {"tag": "m3-paper-study-p1"},
+        "train": {
+            "optimizer": "m3",
+            "lr": 1e-4,
+            "weight_decay": 0.01,
+            "grad_clip_norm": 1.0,
+            "m3": {"beta_style": "paper", "update_norm": "clip"},
+        },
+    }
+    stabilized = run_g1.run_dir_name(base, "hope")
+    base["experiment"]["tag"] = "m3-paper-study-p2"
+    base["train"]["weight_decay"] = 0.0
+    base["train"]["grad_clip_norm"] = None
+    base["train"]["m3"]["update_norm"] = "none"
+    strict = run_g1.run_dir_name(base, "hope")
+    assert stabilized != strict
+    assert "m3-paper-study-p1" in stabilized
+    assert "m3-paper-study-p2" in strict

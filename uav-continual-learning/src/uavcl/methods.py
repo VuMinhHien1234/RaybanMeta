@@ -266,6 +266,7 @@ class CMS(FineTune):
 
     def __init__(self, **_):
         self._snap = None  # ↳ Ảnh chụp trọng số đầu task (để so cuối task).
+        self.last_task_diagnostics = {}
 
     def begin_task(self, model, device, allowed: Sequence[int]) -> None:
         groups = getattr(model, "_cms_groups", None)  # ↳ Các tier do CMSOptimizer gắn vào model.
@@ -280,6 +281,7 @@ class CMS(FineTune):
         groups = getattr(model, "_cms_groups", None)
         if not groups or not self._snap:
             return
+        tier_drift = {}
         for g in groups:
             before = self._snap[g["name"]]         # ↳ Trọng số đầu task.
             delta = sum(
@@ -288,8 +290,16 @@ class CMS(FineTune):
             ) ** 0.5                                # ↳ Căn tổng = ‖Δw‖ của tier.
             base = sum(float(b.norm()) ** 2 for b in before) ** 0.5  # ↳ ‖w‖ ban đầu để tính tỉ lệ %.
             rel = delta / base if base > 0 else 0.0
+            tier_drift[g["name"]] = {
+                "delta_weight_norm": delta,
+                "weight_norm_before": base,
+                "relative_parameter_drift": rel,
+                "period": int(g["period"]),
+                "eta": float(g["eta"]),
+            }
             print(f"[cms] ‖Δw‖ {g['name']:<5s} (p={g['period']:<3d}): {delta:10.4f}  ({rel:.3%} của ‖w‖)")
             # ↳ In dịch chuyển tuyệt đối + tương đối: tier chậm nên ~0%, tier nhanh nên lớn.
+        self.last_task_diagnostics = {"tier_drift": tier_drift}
 
 
 class HOPE(CMS):

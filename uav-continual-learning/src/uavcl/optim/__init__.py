@@ -52,6 +52,9 @@ def build_optimizer(params, train_cfg: dict) -> torch.optim.Optimizer:
             delta_eta=tuple(delta_cfg.get("eta", (0.1, 0.05))),
             update_norm=str(m3_cfg.get("update_norm", "clip")),
             key_proj_eta=float(m3_cfg.get("key_proj_eta", 0.0)),
+            diagnostics=bool(m3_cfg.get("diagnostics", False)),
+            diagnostics_first_n=int(m3_cfg.get("diagnostics_first_n", 50)),
+            paper_timing=str(m3_cfg.get("paper_timing", "legacy_boundary")),
         )
     raise KeyError(f"Unknown optimizer '{name}' (chọn: adamw | m3)")   # ↳ Tên lạ -> báo lỗi rõ.
 

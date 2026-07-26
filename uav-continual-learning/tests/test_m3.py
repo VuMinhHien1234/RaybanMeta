@@ -147,6 +147,116 @@ def test_m3_paper_mode_stable_on_matrix():
     assert math.isfinite(last) and last < first, f"M3(paper) bất ổn: {first:.4f} -> {last:.4f}"
 
 
+def test_paper_one_step_and_second_step_match_algorithm_1():
+    p = torch.nn.Parameter(torch.zeros(2))
+    opt = M3([p], lr=0.0, betas=(0.5, 0.25, 0.75), beta_style="paper",
+             update_norm="none", frequency=8)
+    g1 = torch.tensor([2.0, -4.0])
+    g2 = torch.tensor([1.0, 3.0])
+    p.grad = g1.clone()
+    opt.step()
+    state = opt.state[p]
+    assert torch.allclose(state["m1"], 0.5 * g1)
+    assert torch.allclose(state["v"], 0.25 * g1.square())
+    p.grad = g2.clone()
+    opt.step()
+    assert torch.allclose(state["m1"], 0.5 * (g1 + g2))
+    assert torch.allclose(state["v"], 0.25 * (g1.square() + g2.square()))
+
+
+def test_paper_slow_memory_uses_each_chunk_exactly_once():
+    p = torch.nn.Parameter(torch.zeros(2))
+    opt = M3([p], lr=0.0, betas=(0.9, 0.999, 0.5), beta_style="paper",
+             update_norm="none", frequency=2)
+    grads = [
+        torch.tensor([1.0, 2.0]),
+        torch.tensor([3.0, 4.0]),
+        torch.tensor([5.0, 6.0]),
+        torch.tensor([7.0, 8.0]),
+    ]
+    p.grad = grads[0]; opt.step()
+    assert torch.count_nonzero(opt.state[p]["m2"]) == 0
+    p.grad = grads[1]; opt.step()
+    assert torch.allclose(opt.state[p]["m2"], 0.5 * (grads[0] + grads[1]))
+    p.grad = grads[2]; opt.step()
+    assert torch.allclose(opt.state[p]["m2"], 0.5 * (grads[0] + grads[1]))
+    p.grad = grads[3]; opt.step()
+    assert torch.allclose(opt.state[p]["m2"], 0.5 * sum(grads))
+    assert torch.count_nonzero(opt.state[p]["chunk_sum"]) == 0
+
+
+def test_paper_next_chunk_timing_does_not_leak_o2_into_boundary_step():
+    def run(timing, steps):
+        p = torch.nn.Parameter(torch.zeros(1, 1))
+        opt = M3(
+            [p], lr=0.1, betas=(0.0, 1.0, 1.0), alpha=1.0,
+            beta_style="paper", update_norm="none", frequency=2,
+            ns_steps=0, paper_timing=timing,
+        )
+        for _ in range(steps):
+            p.grad = torch.ones_like(p)
+            opt.step()
+        return float(p)
+
+    # O2 của g1+g2 chỉ được dùng từ step 3 (chunk kế tiếp).
+    assert run("next_chunk", 2) == pytest.approx(0.0, abs=1e-8)
+    assert run("next_chunk", 3) == pytest.approx(-0.2 / (3.0 ** 0.5 + 1e-8))
+    # Mode legacy được giữ để tái lập artifact cũ và dùng O2 ngay tại boundary.
+    assert run("legacy_boundary", 2) < -0.1
+
+
+def test_paper_does_not_bias_correct_v():
+    p = torch.nn.Parameter(torch.zeros(1))
+    opt = M3([p], lr=0.1, betas=(0.9, 0.5, 0.95), beta_style="paper",
+             update_norm="none")
+    p.grad = torch.tensor([2.0])
+    opt.step()
+    expected = -0.1 * (0.9 * 2.0) / ((0.5 * 4.0) ** 0.5 + 1e-8)
+    assert float(p) == pytest.approx(expected, rel=1e-6)
+
+
+def test_paper_strict_does_not_clip_raw_update():
+    p = torch.nn.Parameter(torch.zeros(1))
+    opt = M3([p], lr=0.01, betas=(1.0, 0.25, 0.95),
+             beta_style="paper", update_norm="none")
+    p.grad = torch.tensor([1e-6])
+    opt.step()
+    assert abs(float(p)) > 0.01
+
+
+def test_delta_clip_baseline_regression_trajectory():
+    """Đóng băng P0 tại commit nền 4b9a736 trên chuỗi gradient cố định."""
+    p = torch.nn.Parameter(torch.tensor([[0.2, -0.1], [0.3, 0.4]]))
+    opt = M3([p], lr=0.003, beta_style="delta", update_norm="clip",
+             frequency=2, ns_steps=3, weight_decay=0.01)
+    grads = [
+        torch.tensor([[0.01, -0.02], [0.03, -0.04]]),
+        torch.tensor([[-0.03, 0.01], [0.02, 0.05]]),
+        torch.tensor([[0.02, 0.02], [-0.01, 0.03]]),
+    ]
+    for grad in grads:
+        p.grad = grad
+        opt.step()
+    expected = torch.tensor([
+        [0.2040200680, -0.0964208469],
+        [0.2951953709, 0.3997883499],
+    ])
+    assert torch.allclose(p, expected, atol=1e-8, rtol=1e-6)
+
+
+def test_m3_diagnostics_report_raw_and_post_clip_norms():
+    p = torch.nn.Parameter(torch.zeros(2, 2))
+    opt = M3([p], lr=0.01, diagnostics=True)
+    p.grad = torch.full_like(p, 1e-4)
+    opt.record_external_grad_norm(2e-4, 2e-4)
+    opt.step()
+    diagnostics = opt.diagnostics()
+    assert diagnostics["tensor_updates"] == 1
+    assert diagnostics["summary"]["raw_step_norm"]["count"] == 1
+    assert diagnostics["summary"]["post_step_norm"]["max"] <= 1.0 + 1e-6
+    assert diagnostics["summary"]["grad_norm_before_clip"]["count"] == 1
+
+
 def test_m3_handles_all_param_shapes():
     """1D (bias/norm), 2D (linear), 4D (conv) đều phải bước được, không NaN."""
     torch.manual_seed(0)

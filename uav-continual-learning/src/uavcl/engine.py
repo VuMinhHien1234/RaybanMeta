@@ -25,6 +25,19 @@ from .data.stream import TaskSpec
 from .models.classifier import mask_logits
 
 
+def _inner_m3(opt):
+    candidate = getattr(opt, "inner", opt)
+    return candidate if hasattr(candidate, "diagnostics") else None
+
+
+def _grad_norm(model) -> float:
+    total = torch.zeros((), device=next(model.parameters()).device)
+    for p in model.parameters():
+        if p.requires_grad and p.grad is not None:
+            total.add_(p.grad.detach().float().pow(2).sum())
+    return float(total.sqrt())
+
+
 def resolve_device(pref: str = "auto") -> torch.device:
     # ↳ Chọn thiết bị chạy: "auto" -> tự dò GPU NVIDIA > GPU Apple > CPU.
     pref = (pref or "auto").lower()
@@ -71,6 +84,10 @@ def train_one_task(model, method, loader, device, allowed: Sequence[int], train_
             opt = build_cms_optimizer(model, train_cfg)   # ↳ G3/G4: dùng CMSOptimizer đa tần số.
         else:
             opt = build_optimizer(model.parameters(), train_cfg)  # ↳ G1/G2: optimizer thường.
+    m3_opt = _inner_m3(opt)
+    m3_diagnostics = m3_opt is not None and m3_opt.diagnostics_enabled()
+    if m3_diagnostics:
+        m3_opt.reset_diagnostics()
 
     method.begin_task(model, device, allowed)  # vd LwF chụp teacher tại đây  ↳ Móc "trước task" của method.
     losses = []
@@ -100,6 +117,7 @@ def train_one_task(model, method, loader, device, allowed: Sequence[int], train_
                 )
             opt.zero_grad(set_to_none=True)         # ↳ Xoá gradient cũ.
             loss.backward()                         # ↳ Tính gradient (lan truyền ngược).
+            grad_norm_before = _grad_norm(model) if m3_diagnostics else 0.0
             grad_clip = train_cfg.get("grad_clip_norm")
             if grad_clip is not None:
                 torch.nn.utils.clip_grad_norm_(
@@ -107,6 +125,8 @@ def train_one_task(model, method, loader, device, allowed: Sequence[int], train_
                     max_norm=float(grad_clip),
                     error_if_nonfinite=True,
                 )
+            if m3_diagnostics:
+                m3_opt.record_external_grad_norm(grad_norm_before, _grad_norm(model))
             opt.step()                              # ↳ Cập nhật trọng số.
             run += float(loss.detach()) * y.numel() # ↳ Cộng dồn loss (nhân số mẫu để tính trung bình đúng).
             seen += int(y.numel())
@@ -135,6 +155,9 @@ def run_continual(
         "state_norm": {},
         "state_finite": {},
         "accuracy_after_task": {},
+        "validation_after_task": {},
+        "optimizer_diagnostics": {},
+        "method_diagnostics": {},
     }
     # optimizer_per_task=false: ký ức gradient (M3) + pha chu kỳ CMS sống XUYÊN task (NL-đúng hơn)
     persist_opt = not bool(train_cfg.get("optimizer_per_task", True))  # ↳ Có giữ optimizer xuyên task không.
@@ -156,7 +179,12 @@ def run_continual(
             if persist_opt:
                 opt_carry = opt_used                # ↳ Nhớ optimizer để task sau dùng tiếp.
             log["train_loss"][t] = losses
+            m3_opt = _inner_m3(opt_used)
+            if m3_opt is not None and m3_opt.diagnostics_enabled():
+                log["optimizer_diagnostics"][t] = m3_opt.diagnostics()
         method.end_task(model, task_loaders[t]["train"], device, allowed_train)  # ↳ Móc "sau task" (EWC tính Fisher, log norm...).
+        if getattr(method, "last_task_diagnostics", None):
+            log["method_diagnostics"][t] = method.last_task_diagnostics
         if hasattr(model, "state_norm"):
             log["state_norm"][t] = float(model.state_norm())
         if hasattr(model, "state_isfinite"):
@@ -172,6 +200,11 @@ def run_continual(
             allowed_next = sorted(set(seen) | set(stream[t + 1].classes))
             R[t, t + 1] = evaluate(model, task_loaders[t + 1]["test"], device, allowed_next)  # ↳ Điền ô tam giác trên (FWT).
         log["accuracy_after_task"][t] = R[t].tolist()
+        if bool(train_cfg.get("eval_validation", False)):
+            val_row = [0.0] * T
+            for j in range(t + 1):
+                val_row[j] = evaluate(model, task_loaders[j]["val"], device, allowed_eval)
+            log["validation_after_task"][t] = val_row
         if verbose:
             row = "  ".join(f"{R[t, j]:.3f}" for j in range(t + 1))
             print(f"[task {t}] test acc so far: {row}")

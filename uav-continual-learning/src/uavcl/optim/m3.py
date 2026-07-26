@@ -25,6 +25,10 @@ Ba chế độ cập nhật ký ức (beta_style):
 - "paper": nguyên văn Algorithm 1: M ← M + β·g, V ← V + β·g² (tích lũy kiểu AdaGrad) —
   cho ablation "trung thành pseudocode".
 
+`paper_timing="next_chunk"` làm đúng vòng lặp Algorithm 1: slow memory tổng hợp
+chunk vừa xong và O2 mới chỉ được dùng từ chunk kế tiếp. Mặc định
+`legacy_boundary` giữ timing cũ để các artifact trước đây còn tái lập được.
+
 Newton–Schulz chỉ áp cho tham số dạng ma trận (ndim ≥ 2, reshape về 2D);
 bias/norm 1 chiều đi thẳng (chuẩn Muon). Weight decay kiểu decoupled (như AdamW).
 
@@ -49,6 +53,8 @@ NeuralMemory, không phải chỉnh cấu hình — để dành, ghi trong LOGIC
 #   - "Newton-Schulz" = phép làm "gọn hướng" của ma trận cập nhật (đặc trưng Muon):
 #     giữ HƯỚNG, bỏ ĐỘ LỚN lệch trục -> bước đi cân đối hơn.
 from __future__ import annotations
+
+import math
 
 import torch
 
@@ -96,6 +102,9 @@ class M3(torch.optim.Optimizer):
         delta_eta: tuple = (0.1, 0.05),        # tốc độ ghi η (ký ức nhanh, chậm)
         update_norm: str = "clip",          # "clip" (reference) | "rms" (legacy) | "none" (Algorithm 1)
         key_proj_eta: float = 0.0,          # xấp xỉ rank-1 của P_i — 0 = tắt (mặc định, xem docstring)
+        diagnostics: bool = False,
+        diagnostics_first_n: int = 50,
+        paper_timing: str = "legacy_boundary",
     ):
         # VÌ SAO CÓ update_norm (bằng chứng đo được trên EuroSAT/ViT):
         # Dòng 10 Algorithm 1 chia (O1+αO2) cho sqrt(V): tử số đã bị Newton–Schulz chuẩn
@@ -121,6 +130,10 @@ class M3(torch.optim.Optimizer):
             raise ValueError(f"eps phải > 0 (nhận {eps})")
         if weight_decay < 0.0:
             raise ValueError(f"weight_decay phải >= 0 (nhận {weight_decay})")
+        if int(diagnostics_first_n) < 0:
+            raise ValueError("diagnostics_first_n phải >= 0")
+        if paper_timing not in ("legacy_boundary", "next_chunk"):
+            raise ValueError("paper_timing phải là 'legacy_boundary' hoặc 'next_chunk'")
         for a, e in zip(delta_alpha, delta_eta):
             if not (0.0 < e <= a <= 1.0):                        # ↳ Ràng buộc toán: 0 < η <= α <= 1.
                 raise ValueError(f"cần 0 < η <= α <= 1 (nhận α={a}, η={e})")
@@ -128,8 +141,69 @@ class M3(torch.optim.Optimizer):
                         ns_steps=int(ns_steps), eps=eps, weight_decay=weight_decay,
                         beta_style=beta_style, delta_alpha=tuple(delta_alpha),
                         delta_eta=tuple(delta_eta), update_norm=update_norm,
-                        key_proj_eta=float(key_proj_eta))        # ↳ Gói mọi siêu tham số vào "defaults".
+                        key_proj_eta=float(key_proj_eta),
+                        diagnostics=bool(diagnostics),
+                        diagnostics_first_n=int(diagnostics_first_n),
+                        paper_timing=paper_timing)
         super().__init__(params, defaults)                       # ↳ Optimizer cha lo việc nhóm tham số.
+        self._diagnostic_values: dict[str, list[float]] = {}
+        self._diagnostic_first: list[dict] = []
+        self._diagnostic_tensor_updates = 0
+        self._diagnostic_clipped = 0
+        self._diagnostic_nonfinite = 0
+
+    def diagnostics_enabled(self) -> bool:
+        return any(bool(group.get("diagnostics", False)) for group in self.param_groups)
+
+    def _record_diagnostic(self, name: str, value) -> None:
+        value = float(value)
+        if math.isfinite(value):
+            self._diagnostic_values.setdefault(name, []).append(value)
+        else:
+            self._diagnostic_nonfinite += 1
+
+    def record_external_grad_norm(self, before: float, after: float) -> None:
+        """Engine gọi hàm này để ghi norm gradient trước/sau global clipping."""
+        if not self.diagnostics_enabled():
+            return
+        self._record_diagnostic("grad_norm_before_clip", before)
+        self._record_diagnostic("grad_norm_after_clip", after)
+
+    def reset_diagnostics(self) -> None:
+        self._diagnostic_values.clear()
+        self._diagnostic_first.clear()
+        self._diagnostic_tensor_updates = 0
+        self._diagnostic_clipped = 0
+        self._diagnostic_nonfinite = 0
+
+    def diagnostics(self) -> dict:
+        """Trả thống kê gọn; không lưu tensor nên artifacts không phình theo model."""
+        def summarize(values: list[float]) -> dict:
+            if not values:
+                return {"count": 0}
+            ordered = sorted(values)
+            n = len(ordered)
+            return {
+                "count": n,
+                "min": ordered[0],
+                "median": ordered[n // 2],
+                "p95": ordered[min(n - 1, math.ceil(0.95 * n) - 1)],
+                "max": ordered[-1],
+                "mean": sum(ordered) / n,
+            }
+
+        total = self._diagnostic_tensor_updates
+        return {
+            "summary": {
+                name: summarize(values)
+                for name, values in sorted(self._diagnostic_values.items())
+            },
+            "tensor_updates": total,
+            "clipped_tensor_updates": self._diagnostic_clipped,
+            "clip_rate": self._diagnostic_clipped / max(total, 1),
+            "nonfinite_count": self._diagnostic_nonfinite,
+            "first_updates": list(self._diagnostic_first),
+        }
 
     @torch.no_grad()  # ↳ Cập nhật trọng số KHÔNG cần tính đạo hàm -> tắt autograd cho nhanh/nhẹ.
     def step(self, closure=None):
@@ -139,7 +213,7 @@ class M3(torch.optim.Optimizer):
             with torch.enable_grad():
                 loss = closure()
 
-        for group in self.param_groups:            # ↳ Duyệt từng nhóm tham số (CMS chia nhiều nhóm).
+        for group_idx, group in enumerate(self.param_groups):
             b1, b2, b3 = group["betas"]            # ↳ 3 hệ số quán tính: nhanh, bậc 2, chậm.
             lr, alpha, eps = group["lr"], group["alpha"], group["eps"]
             f, T, wd = group["frequency"], group["ns_steps"], group["weight_decay"]
@@ -147,8 +221,12 @@ class M3(torch.optim.Optimizer):
             da1, da2 = group["delta_alpha"]        # ↳ Cổng quên α cho ký ức nhanh/chậm.
             de1, de2 = group["delta_eta"]          # ↳ Tốc độ ghi η cho ký ức nhanh/chậm.
             key_proj_eta = group["key_proj_eta"]
+            diagnostics = bool(group.get("diagnostics", False))
+            diagnostic_first_n = int(group.get("diagnostics_first_n", 50))
+            tier_name = str(group.get("tier_name", f"group{group_idx}"))
+            paper_timing = str(group.get("paper_timing", "legacy_boundary"))
 
-            for p in group["params"]:              # ↳ Duyệt từng tham số (tensor trọng số) trong nhóm.
+            for param_idx, p in enumerate(group["params"]):
                 if p.grad is None:
                     continue                       # ↳ Không có gradient (vd CMS chưa tới hạn) -> bỏ qua.
                 g = p.grad                         # ↳ g = gradient hiện tại của tham số này.
@@ -190,6 +268,7 @@ class M3(torch.optim.Optimizer):
                     st["v"].addcmul_(g, g, value=b2)
 
                 # dòng 3–4 + Eq. 75: mỗi f bước, gộp chunk gradient vào ký ức chậm
+                o2_before_boundary = st["o2"]
                 st["chunk_sum"].add_(g)            # ↳ Cộng gradient vào "sọt" chờ đủ f bước.
                 if st["step"] % f == 0:            # ↳ Cứ f bước một lần thì cập nhật ký ức CHẬM.
                     if style == "delta":
@@ -201,32 +280,81 @@ class M3(torch.optim.Optimizer):
                         st["m2"].add_(st["chunk_sum"], alpha=b3)
                     st["o2"] = newton_schulz(st["m2"], steps=T)  # ↳ Làm gọn hướng ký ức chậm, dùng lại cả chunk.
                     st["chunk_sum"].zero_()                       # ↳ Đổ sọt về 0 cho chunk kế tiếp.
+                o2_for_update = (
+                    o2_before_boundary
+                    if style == "paper" and paper_timing == "next_chunk"
+                    else st["o2"]
+                )
 
                 # dòng 9–10: trực giao hoá ký ức nhanh, cộng 2 tầng, chia sqrt(V).
                 # QUY ƯỚC MUON: NS + ký ức chậm chỉ áp cho tham số MA TRẬN (ndim>=2);
                 # bias/norm 1D rơi về update kiểu Adam thuần (áp nguyên M3 lên vector
                 # gây limit-cycle — đã quan sát được trên bài toán lồi 1D).
                 if p.ndim >= 2:
-                    update = newton_schulz(st["m1"], steps=T) + alpha * st["o2"]  # ↳ Ma trận: gộp ký ức nhanh (đã trực giao) + chậm.
+                    o1 = newton_schulz(st["m1"], steps=T)
+                    update = o1 + alpha * o2_for_update
                 else:
-                    update = st["m1"]                # ↳ Vector 1D (bias/norm): dùng thẳng ký ức nhanh.
+                    o1 = st["m1"]
+                    update = o1
                 if style == "paper":
                     denom = st["v"].sqrt().add(eps)  # ↳ Mẫu số kiểu AdaGrad (không hiệu chỉnh bias).
                 else:
                     # ema/delta: hiệu chỉnh bias cho V kiểu Adam (bước đầu V còn "non")
                     bias_corr = 1.0 - b2 ** st["step"]        # ↳ Bù cho việc V khởi tạo bằng 0 (những bước đầu).
                     denom = (st["v"] / bias_corr).sqrt().add(eps)
+                if not torch.isfinite(st["m1"]).all() or not torch.isfinite(st["m2"]).all():
+                    self._diagnostic_nonfinite += 1
+                    raise FloatingPointError("M3 momentum chứa NaN/Inf")
+                if not torch.isfinite(st["v"]).all() or not torch.isfinite(denom).all():
+                    self._diagnostic_nonfinite += 1
+                    raise FloatingPointError("M3 moment bậc hai/denominator chứa NaN/Inf")
                 step_dir = update / denom            # ↳ Hướng bước = tử số / sqrt(V) (chuẩn hoá theo độ lớn gradient).
+                raw_step_norm = step_dir.norm()
                 norm_mode = group["update_norm"]
+                was_clipped = False
                 if norm_mode == "clip":
                     # Implementation tham khảo giới hạn norm toàn update ở 1. Khác với
                     # legacy RMS, phép này chỉ co update lớn và không khuếch đại update nhỏ.
                     step_norm = step_dir.norm()
                     step_dir = step_dir / step_norm.clamp_min(1.0)
+                    was_clipped = bool(step_norm > 1.0)
                 elif p.ndim >= 2 and norm_mode == "rms":
                     # Chế độ legacy để tái lập run cũ: ép RMS bước ma trận = 1.
                     step_dir = step_dir / step_dir.pow(2).mean().sqrt().add(1e-12)  # ↳ "Cầu chì": ép RMS bước = 1.
                 if not torch.isfinite(step_dir).all():
+                    self._diagnostic_nonfinite += 1
                     raise FloatingPointError("M3 tạo hướng cập nhật chứa NaN/Inf")
+                if diagnostics:
+                    post_step_norm = step_dir.norm()
+                    weight_norm = p.norm()
+                    relative_update = lr * post_step_norm / (weight_norm + eps)
+                    self._diagnostic_tensor_updates += 1
+                    self._diagnostic_clipped += int(was_clipped)
+                    values = {
+                        "m1_norm": st["m1"].norm(),
+                        "m2_norm": st["m2"].norm(),
+                        "v_norm": st["v"].norm(),
+                        "o1_norm": o1.norm(),
+                        "o2_norm": st["o2"].norm(),
+                        "sqrt_v_norm": st["v"].sqrt().norm(),
+                        "raw_step_norm": raw_step_norm,
+                        "post_step_norm": post_step_norm,
+                        "relative_update": relative_update,
+                        "denom_min": denom.min(),
+                        "denom_max": denom.max(),
+                    }
+                    for name, value in values.items():
+                        self._record_diagnostic(name, value)
+                    for name in ("raw_step_norm", "post_step_norm", "relative_update"):
+                        self._record_diagnostic(f"tier.{tier_name}.{name}", values[name])
+                    if len(self._diagnostic_first) < diagnostic_first_n:
+                        self._diagnostic_first.append({
+                            "step": int(st["step"]),
+                            "group": int(group_idx),
+                            "parameter": int(param_idx),
+                            "shape": list(p.shape),
+                            "clipped": was_clipped,
+                            **{name: float(value) for name, value in values.items()},
+                        })
                 p.add_(step_dir, alpha=-lr)          # ↳ CẬP NHẬT THẬT: trọng số ← trọng số − lr·hướng_bước.
         return loss

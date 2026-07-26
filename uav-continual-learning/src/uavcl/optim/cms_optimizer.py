@@ -152,6 +152,7 @@ def build_cms_optimizer(model, train_cfg: dict) -> CMSOptimizer:
         {
             "params": g["params"],
             "lr": base_lr * float(g["eta"]),
+            "tier_name": str(g["name"]),
             # CMS đã làm tier bước thưa đi. Với global_step, quy đổi f của M3 để hai
             # lịch không vô tình nhân nhau (p=64, f=16 -> 1024 batch mới có M2).
             **(

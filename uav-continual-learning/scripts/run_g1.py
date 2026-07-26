@@ -16,8 +16,11 @@ Sau khi chạy >=2 method, gộp bảng so sánh:  python scripts/compare_g1.py
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import json
+import platform
 import pathlib
+import subprocess
 import sys
 import time
 
@@ -30,6 +33,12 @@ import pandas as pd  # noqa: E402
 def run_dir_name(cfg: dict, method_name: str) -> str:
     """Tên thư mục kết quả — nguồn duy nhất, dùng cho cả ghi lẫn resume (--skip-existing)."""
     name = f"{str(cfg['data']['name']).lower()}_{method_name}_seed{int(cfg.get('seed', 0))}"
+    experiment_tag = str((cfg.get("experiment") or {}).get("tag", "")).strip().lower()
+    if experiment_tag:
+        safe_tag = "".join(c for c in experiment_tag if c.isalnum() or c in "-_")
+        if not safe_tag:
+            raise ValueError("experiment.tag phải chứa ít nhất một ký tự chữ hoặc số")
+        name += f"_{safe_tag}"
     opt = str(cfg.get("train", {}).get("optimizer", "adamw")).lower()
     if opt != "adamw":
         name += f"_{opt}"
@@ -62,6 +71,31 @@ def run_dir_name(cfg: dict, method_name: str) -> str:
             raise ValueError("data.split_protocol phải chứa ít nhất một ký tự chữ hoặc số")
         name += f"_split{safe_protocol}"
     return name
+
+
+def environment_metadata(root: pathlib.Path) -> dict:
+    def git(*args: str):
+        try:
+            return subprocess.check_output(
+                ["git", *args], cwd=root, text=True, stderr=subprocess.DEVNULL
+            ).strip()
+        except (OSError, subprocess.CalledProcessError):
+            return None
+
+    packages = {}
+    for package in ("torch", "torchvision", "timm", "titans-pytorch", "numpy"):
+        try:
+            packages[package] = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            packages[package] = None
+    return {
+        "git_commit": git("rev-parse", "HEAD"),
+        "git_branch": git("branch", "--show-current"),
+        "git_dirty": bool(git("status", "--porcelain")),
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "packages": packages,
+    }
 
 
 def main() -> int:
@@ -144,11 +178,15 @@ def main() -> int:
     method = build_method(method_name, cfg)
     out.mkdir(parents=True, exist_ok=True)
     save_config(cfg, out / "config.yaml")
+    metadata = environment_metadata(pathlib.Path(__file__).resolve().parents[1])
+    (out / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
     # --- run ---
     cms_cfg = cfg.get("cms") or {}
     if cms_cfg.get("enabled", False):
         cfg["train"]["cms"] = cms_cfg  # engine đọc từ train_cfg -> dùng CMSOptimizer (G3)
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
     try:
         R, log = run_continual(model, method, stream, loaders, device, cfg["train"])
     except Exception as exc:
@@ -181,6 +219,23 @@ def main() -> int:
         "method_extra_floats": int(method.footprint_floats(model)),
         "runtime_sec": round(time.time() - t0, 1),
     }
+    if device.type == "cuda":
+        metrics["peak_memory_bytes"] = int(torch.cuda.max_memory_allocated(device))
+    elif device.type == "mps" and hasattr(torch.mps, "current_allocated_memory"):
+        metrics["peak_memory_bytes"] = int(torch.mps.current_allocated_memory())
+    else:
+        metrics["peak_memory_bytes"] = None
+    validation_rows = log.get("validation_after_task", {})
+    if validation_rows:
+        validation_matrix = np.asarray(
+            [validation_rows.get(i, validation_rows.get(str(i))) for i in range(len(stream))],
+            dtype=float,
+        )
+        metrics["validation_average_accuracy"] = average_accuracy(validation_matrix)
+        metrics["validation_average_forgetting"] = average_forgetting(validation_matrix)
+    else:
+        metrics["validation_average_accuracy"] = None
+        metrics["validation_average_forgetting"] = None
     if mem_cfg.get("enabled", False):
         metrics["memory_reset"] = str(mem_cfg.get("reset", "image")).lower()
     if cms_cfg.get("enabled", False):
