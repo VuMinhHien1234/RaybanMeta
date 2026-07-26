@@ -90,7 +90,6 @@ def _evaluate_ncm(model, loader, device, allowed: Sequence[int], prototypes) -> 
 def train_one_task(model, method, loader, device, allowed: Sequence[int], train_cfg: dict,
                    opt=None):
     """Train model trên MỘT task. Trả về (loss từng epoch, optimizer đã dùng).
-
     `opt=None` -> tạo optimizer MỚI cho task này (mặc định — không mang moment cũ sang).
     Truyền `opt` có sẵn -> KÝ ỨC GRADIENT (M1/M2/V của M3) và pha chu kỳ CMS sống
     XUYÊN task — đúng tinh thần NL "optimizer cũng là bộ nhớ dài hạn"
@@ -99,15 +98,12 @@ def train_one_task(model, method, loader, device, allowed: Sequence[int], train_
     epochs = int(train_cfg.get("epochs_per_task", 3))  # ↳ Số lần lặp qua dữ liệu task này.
     # Chọn qua config: train.optimizer = adamw | m3; cms.enabled -> bọc đa tần số (G3).
     from .optim import build_optimizer
-
     if opt is None:                                # ↳ Chưa có optimizer -> tạo mới.
         if (train_cfg.get("cms") or {}).get("enabled", False):
             from .optim.cms_optimizer import build_cms_optimizer
-
             opt = build_cms_optimizer(model, train_cfg)   # ↳ G3/G4: dùng CMSOptimizer đa tần số.
         else:
             opt = build_optimizer(model.parameters(), train_cfg)  # ↳ G1/G2: optimizer thường.
-
     method.begin_task(model, device, allowed)  # vd LwF chụp teacher tại đây  ↳ Móc "trước task" của method.
     losses = []
     model.train()                                  # ↳ Bật chế độ train.

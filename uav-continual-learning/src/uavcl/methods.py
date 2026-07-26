@@ -1,5 +1,4 @@
 """Các "method" học liên tục của G1 (baseline). Giao diện (hook) chung:
-
     method.begin_task(model, device, allowed)          -> gọi TRƯỚC KHI train task
     method.penalty(model)                              -> tensor | None (regularizer tham số, vd EWC)
     method.extra_batch_loss(model, x, logits_full, device)
