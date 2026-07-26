@@ -123,6 +123,17 @@ def _stream_process(cmd: list[str], cwd: pathlib.Path, log_path: pathlib.Path) -
         return proc.wait()
 
 
+def _is_terminal_scientific_failure(failure_path: pathlib.Path) -> bool:
+    """NaN/state-health failures are experiment outcomes, not runner failures."""
+    if not failure_path.exists():
+        return False
+    try:
+        failure = json.loads(failure_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return failure.get("exception") == "FloatingPointError"
+
+
 def run_experiment(
     config_path: pathlib.Path,
     artifact_root: pathlib.Path,
@@ -160,6 +171,9 @@ def run_experiment(
     if RUN_G1.result_is_complete(out, final_cfg) and not failure_path.exists():
         print(f"[SKIP VALID] {label}", flush=True)
         return True
+    if _is_terminal_scientific_failure(failure_path):
+        print(f"[SKIP FAILED] {label} — FloatingPointError đã được ghi nhận", flush=True)
+        return False
 
     code = _stream_process(cmd, ROOT, artifact_root / "campaign_logs" / f"{label}.log")
     if code == 0 and RUN_G1.result_is_complete(out, final_cfg):
@@ -297,16 +311,46 @@ def _load_result(path: pathlib.Path) -> dict:
         "runtime_sec": float(metrics.get("runtime_sec", 0.0)),
         "device": metrics.get("device"),
         "git_commit": metrics.get("git_commit"),
+        "status": "complete" if valid else "invalid",
+        "failure": None,
+    }
+
+
+def _load_failure(path: pathlib.Path) -> dict:
+    cfg = yaml.safe_load((path / "config.yaml").read_text(encoding="utf-8"))
+    failure = json.loads((path / "failure.json").read_text(encoding="utf-8"))
+    return {
+        "path": path,
+        "tag": str(cfg.get("log", {}).get("run_tag", "")),
+        "seed": int(cfg.get("seed", 0)),
+        "lr": float(cfg["train"]["lr"]),
+        "accuracy": None,
+        "forgetting": None,
+        "bwt": None,
+        "ncm_accuracy": None,
+        "ncm_forgetting": None,
+        "max_state_norm": math.inf,
+        "max_state_growth": math.inf,
+        "valid": False,
+        "runtime_sec": float(failure.get("runtime_sec", 0.0)),
+        "device": None,
+        "git_commit": None,
+        "status": "failed",
+        "failure": f"{failure.get('exception', 'Error')}: {failure.get('message', '')}",
     }
 
 
 def collect_results(artifact_root: pathlib.Path) -> list[dict]:
     rows = []
-    for metrics_path in sorted((artifact_root / "results").glob("*/metrics.json")):
-        result_dir = metrics_path.parent
-        if not (result_dir / "config.yaml").exists() or not (result_dir / "train_log.json").exists():
+    for result_dir in sorted((artifact_root / "results").glob("*")):
+        config_path = result_dir / "config.yaml"
+        if not result_dir.is_dir() or not config_path.exists():
             continue
-        rows.append(_load_result(result_dir))
+        cfg = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        if RUN_G1.result_is_complete(result_dir, cfg) and not (result_dir / "failure.json").exists():
+            rows.append(_load_result(result_dir))
+        elif (result_dir / "failure.json").exists():
+            rows.append(_load_failure(result_dir))
     return rows
 
 
@@ -414,6 +458,8 @@ def phase_summarize(artifact_root: pathlib.Path, dry_run: bool = False) -> None:
         "runtime_sec",
         "device",
         "git_commit",
+        "status",
+        "failure",
         "path",
     ]
     with (artifact_root / "runs.csv").open("w", newline="", encoding="utf-8") as handle:
@@ -435,13 +481,19 @@ def phase_summarize(artifact_root: pathlib.Path, dry_run: bool = False) -> None:
     ]
     for (tag, lr), group in sorted(groups.items()):
         valid = [row for row in group if row["valid"]]
+        finite_norms = [
+            row["max_state_norm"]
+            for row in group
+            if math.isfinite(row["max_state_norm"])
+        ]
+        max_norm = f"{max(finite_norms):.2f}" if finite_norms else "FAIL"
         lines.append(
             f"| {tag} | {lr:g} | {len(valid)}/{len(group)} | "
             f"{_mean_std([row['accuracy'] for row in valid])} | "
             f"{_mean_std([row['forgetting'] for row in valid])} | "
             f"{_mean_std([row['ncm_accuracy'] for row in valid if row['ncm_accuracy'] is not None])} | "
             f"{_mean_std([row['ncm_forgetting'] for row in valid if row['ncm_forgetting'] is not None])} | "
-            f"{max((row['max_state_norm'] for row in group), default=math.nan):.2f} |"
+            f"{max_norm} |"
         )
 
     matched = {
@@ -463,6 +515,11 @@ def phase_summarize(artifact_root: pathlib.Path, dry_run: bool = False) -> None:
         new = matched.get(("improved", seed))
         if old is None or new is None:
             lines.append(f"| {seed} | - | - | - | - | - |")
+            continue
+        if not old["valid"] or not new["valid"]:
+            old_state = "FAIL" if not old["valid"] else f"{old['max_state_norm']:.2f}"
+            new_state = "FAIL" if not new["valid"] else f"{new['max_state_norm']:.2f}"
+            lines.append(f"| {seed} | - | - | - | {old_state} | {new_state} |")
             continue
         ncm_delta = (
             new["ncm_accuracy"] - old["ncm_accuracy"]
