@@ -7,6 +7,9 @@ data:
   name: resisc45
   hf_repo: timm/resisc45
   root: ./data
+  split_protocol: combined31500_v2
+  expected_total_samples: 31500
+  expected_samples_per_class: 700
   num_tasks: 9
   shuffle_classes: true
   image_size: 224

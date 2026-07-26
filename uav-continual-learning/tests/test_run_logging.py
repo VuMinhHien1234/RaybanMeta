@@ -48,3 +48,33 @@ def test_m3_run_name_separates_nondefault_alpha():
     ablation_name = run_g1.run_dir_name(base, "hope")
     assert default_name != ablation_name
     assert "_a0.1" in ablation_name
+
+
+def test_run_name_separates_study_tags():
+    run_g1 = _run_module()
+    base = {
+        "seed": 1,
+        "data": {"name": "resisc45"},
+        "log": {"run_tag": "legacy"},
+        "train": {"optimizer": "m3", "lr": 1e-3, "m3": {"update_norm": "rms"}},
+    }
+    legacy = run_g1.run_dir_name(base, "titans")
+    base["log"]["run_tag"] = "clip-carry"
+    improved = run_g1.run_dir_name(base, "titans")
+    assert legacy != improved
+    assert "_legacy_" in legacy
+    assert "_clip-carry_" in improved
+
+
+def test_run_name_rejects_empty_sanitized_tag():
+    import pytest
+
+    run_g1 = _run_module()
+    cfg = {
+        "seed": 0,
+        "data": {"name": "synthetic"},
+        "log": {"run_tag": "..."},
+        "train": {"optimizer": "adamw"},
+    }
+    with pytest.raises(ValueError, match="run_tag"):
+        run_g1.run_dir_name(cfg, "titans")

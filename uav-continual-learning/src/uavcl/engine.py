@@ -171,6 +171,7 @@ def run_continual(
     # optimizer_per_task=false: ký ức gradient (M3) + pha chu kỳ CMS sống XUYÊN task (NL-đúng hơn)
     persist_opt = not bool(train_cfg.get("optimizer_per_task", True))  # ↳ Có giữ optimizer xuyên task không.
     opt_carry = None                                # ↳ Optimizer mang từ task trước sang (nếu persist).
+    previous_state_norm = None
 
     for t, spec in enumerate(stream):               # ↳ Học lần lượt từng task t.
         allowed_train = spec.classes                # ↳ Khi train task t, chỉ tính loss trên class của task t.
@@ -190,7 +191,10 @@ def run_continual(
             log["train_loss"][t] = losses
         method.end_task(model, task_loaders[t]["train"], device, allowed_train)  # ↳ Móc "sau task" (EWC tính Fisher, log norm...).
         if hasattr(model, "state_norm"):
-            log["state_norm"][t] = float(model.state_norm())
+            current_state_norm = float(model.state_norm())
+            log["state_norm"][t] = current_state_norm
+            _validate_state_health(current_state_norm, previous_state_norm, train_cfg, t)
+            previous_state_norm = current_state_norm
         if hasattr(model, "state_isfinite"):
             log["state_finite"][t] = bool(model.state_isfinite())
 
@@ -222,3 +226,29 @@ def run_continual(
                 row = "  ".join(f"{log['ncm_R'][t, j]:.3f}" for j in range(t + 1))
                 print(f"[task {t}] NCM-head acc so far: {row}")
     return R, log                                   # ↳ Trả ma trận kết quả + log cho phần tính metric/báo cáo.
+
+
+def _validate_state_health(
+    current: float, previous: float | None, train_cfg: dict, task_id: int
+) -> None:
+    """Optional campaign guardrails for long-running memory experiments."""
+    if not np.isfinite(current):
+        raise FloatingPointError(f"norm(state) không hữu hạn sau task {task_id}: {current}")
+
+    max_norm = train_cfg.get("max_state_norm")
+    if max_norm is not None and current >= float(max_norm):
+        raise FloatingPointError(
+            f"norm(state)={current:.4f} vượt ngưỡng {float(max_norm):.4f} sau task {task_id}"
+        )
+
+    max_growth = train_cfg.get("max_state_norm_growth")
+    if (
+        max_growth is not None
+        and previous is not None
+        and previous > 0.0
+        and current / previous > float(max_growth)
+    ):
+        raise FloatingPointError(
+            f"norm(state) tăng {current / previous:.2f}x sau task {task_id}, "
+            f"vượt ngưỡng {float(max_growth):.2f}x"
+        )

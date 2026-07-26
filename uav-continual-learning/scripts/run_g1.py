@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import subprocess
 import sys
 import time
 
@@ -30,6 +31,12 @@ import pandas as pd  # noqa: E402
 def run_dir_name(cfg: dict, method_name: str) -> str:
     """Tên thư mục kết quả — nguồn duy nhất, dùng cho cả ghi lẫn resume (--skip-existing)."""
     name = f"{str(cfg['data']['name']).lower()}_{method_name}_seed{int(cfg.get('seed', 0))}"
+    run_tag = str(cfg.get("log", {}).get("run_tag", "")).strip().lower()
+    if run_tag:
+        safe_tag = "".join(c for c in run_tag if c.isalnum() or c in "-_")
+        if not safe_tag:
+            raise ValueError("log.run_tag phải chứa ít nhất một ký tự chữ hoặc số")
+        name += f"_{safe_tag}"
     opt = str(cfg.get("train", {}).get("optimizer", "adamw")).lower()
     if opt != "adamw":
         name += f"_{opt}"
@@ -143,6 +150,7 @@ def main() -> int:
         model = ContinualClassifier(backbone, feat_dim, source.num_classes).to(device)
     method = build_method(method_name, cfg)
     out.mkdir(parents=True, exist_ok=True)
+    (out / "failure.json").unlink(missing_ok=True)
     save_config(cfg, out / "config.yaml")
 
     # --- run ---
@@ -180,7 +188,17 @@ def main() -> int:
         "trainable_params": int(sum(p.numel() for p in model.parameters() if p.requires_grad)),
         "method_extra_floats": int(method.footprint_floats(model)),
         "runtime_sec": round(time.time() - t0, 1),
+        "device": str(device),
+        "torch_version": str(torch.__version__),
     }
+    if device.type == "cuda":
+        metrics["cuda_device"] = torch.cuda.get_device_name(device)
+    try:
+        metrics["git_commit"] = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=pathlib.Path(__file__).resolve().parents[1], text=True
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
+        metrics["git_commit"] = None
     if mem_cfg.get("enabled", False):
         metrics["memory_reset"] = str(mem_cfg.get("reset", "image")).lower()
     if cms_cfg.get("enabled", False):
