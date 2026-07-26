@@ -80,6 +80,17 @@ def result_is_complete(out: pathlib.Path, cfg: dict) -> bool:
     return True
 
 
+def has_terminal_scientific_failure(out: pathlib.Path) -> bool:
+    failure_path = out / "failure.json"
+    if not failure_path.exists():
+        return False
+    try:
+        failure = json.loads(failure_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return failure.get("exception") == "FloatingPointError"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", required=True, help="đường dẫn file yaml (vd configs/g1_eurosat.yaml)")
@@ -88,6 +99,8 @@ def main() -> int:
                     help="override config, vd: train.lr=1e-4 data.num_tasks=5")
     ap.add_argument("--skip-existing", action="store_true",
                     help="đã có metrics.json cho run này thì bỏ qua (resume cho run_all)")
+    ap.add_argument("--retry-failed", action="store_true",
+                    help="chạy lại cả run đã dừng vì NaN/state-health FloatingPointError")
     args = ap.parse_args()
 
     from uavcl.utils.config import apply_overrides, load_config, save_config
@@ -101,6 +114,9 @@ def main() -> int:
     if args.skip_existing and result_is_complete(out, cfg):
         print(f"[SKIP] {out.name} — đã có kết quả.")
         return 0
+    if args.skip_existing and not args.retry_failed and has_terminal_scientific_failure(out):
+        print(f"[SKIP FAILED] {out.name} — FloatingPointError đã được ghi nhận.")
+        return 2
     seed_everything(seed)
     try:
         import torch  

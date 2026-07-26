@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 
 
@@ -89,3 +90,19 @@ def test_result_complete_requires_ncm_outputs_when_enabled(tmp_path):
     (tmp_path / "metrics_ncm.json").write_text("{}", encoding="utf-8")
     (tmp_path / "acc_matrix_ncm.csv").write_text("", encoding="utf-8")
     assert run_g1.result_is_complete(tmp_path, cfg)
+
+
+def test_terminal_scientific_failure_only_accepts_floating_point(tmp_path):
+    run_g1 = _run_module()
+    failure_path = tmp_path / "failure.json"
+    failure_path.write_text(
+        json.dumps({"exception": "FloatingPointError", "message": "state NaN"}),
+        encoding="utf-8",
+    )
+    assert run_g1.has_terminal_scientific_failure(tmp_path)
+
+    failure_path.write_text(
+        json.dumps({"exception": "RuntimeError", "message": "temporary I/O"}),
+        encoding="utf-8",
+    )
+    assert not run_g1.has_terminal_scientific_failure(tmp_path)
