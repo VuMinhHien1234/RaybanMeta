@@ -71,6 +71,15 @@ def run_dir_name(cfg: dict, method_name: str) -> str:
     return name
 
 
+def result_is_complete(out: pathlib.Path, cfg: dict) -> bool:
+    required = ("metrics.json", "config.yaml", "acc_matrix.csv", "train_log.json")
+    if not all((out / name).exists() for name in required):
+        return False
+    if bool(cfg.get("train", {}).get("eval_ncm_head", False)):
+        return all((out / name).exists() for name in ("metrics_ncm.json", "acc_matrix_ncm.csv"))
+    return True
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", required=True, help="đường dẫn file yaml (vd configs/g1_eurosat.yaml)")
@@ -89,7 +98,7 @@ def main() -> int:
     seed = int(cfg.get("seed", 0))
 
     out = pathlib.Path(cfg.get("log", {}).get("dir", "./artifacts")) / "results" / run_dir_name(cfg, method_name)
-    if args.skip_existing and (out / "metrics.json").exists():
+    if args.skip_existing and result_is_complete(out, cfg):
         print(f"[SKIP] {out.name} — đã có kết quả.")
         return 0
     seed_everything(seed)
@@ -211,7 +220,12 @@ def main() -> int:
     pd.DataFrame(R, index=[f"after_task{i}" for i in range(len(stream))], columns=cols) \
         .to_csv(out / "acc_matrix.csv", float_format="%.4f")
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
-    (out / "train_log.json").write_text(json.dumps(log, indent=2), encoding="utf-8")
+    serializable_log = dict(log)
+    if isinstance(serializable_log.get("ncm_R"), np.ndarray):
+        serializable_log["ncm_R"] = serializable_log["ncm_R"].tolist()
+    (out / "train_log.json").write_text(
+        json.dumps(serializable_log, indent=2), encoding="utf-8"
+    )
     if hasattr(model, "export_state"):  # G2 (S10): lưu "cục ký ức" cuối stream
         st = model.export_state()
         if st is not None:

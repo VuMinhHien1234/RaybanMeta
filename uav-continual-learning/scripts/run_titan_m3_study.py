@@ -138,6 +138,7 @@ def run_experiment(
     metrics_path = out / "metrics.json"
     failure_path = out / "failure.json"
     label = out.name
+    campaign_failure_path = artifact_root / "campaign_failures" / f"{label}.json"
     cmd = [
         sys.executable,
         str(ROOT / "scripts" / "run_g1.py"),
@@ -152,12 +153,17 @@ def run_experiment(
     print("\n$", " ".join(cmd), flush=True)
     if dry_run:
         return True
-    if metrics_path.exists() and not failure_path.exists():
+    final_cfg = _final_config(
+        config_path,
+        [*overrides, f"log.dir={artifact_root}", f"log.run_tag={tag}"],
+    )
+    if RUN_G1.result_is_complete(out, final_cfg) and not failure_path.exists():
         print(f"[SKIP VALID] {label}", flush=True)
         return True
 
     code = _stream_process(cmd, ROOT, artifact_root / "campaign_logs" / f"{label}.log")
-    if code == 0 and metrics_path.exists():
+    if code == 0 and RUN_G1.result_is_complete(out, final_cfg):
+        campaign_failure_path.unlink(missing_ok=True)
         print(f"[DONE] {label}", flush=True)
         return True
 
@@ -170,7 +176,7 @@ def run_experiment(
         "result_dir": str(out),
         "time": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
-    (failure_dir / f"{label}.json").write_text(
+    campaign_failure_path.write_text(
         json.dumps(failure, indent=2), encoding="utf-8"
     )
     print(f"[FAILED] {label} (exit={code})", flush=True)

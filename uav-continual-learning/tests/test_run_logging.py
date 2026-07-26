@@ -78,3 +78,14 @@ def test_run_name_rejects_empty_sanitized_tag():
     }
     with pytest.raises(ValueError, match="run_tag"):
         run_g1.run_dir_name(cfg, "titans")
+
+
+def test_result_complete_requires_ncm_outputs_when_enabled(tmp_path):
+    run_g1 = _run_module()
+    cfg = {"train": {"eval_ncm_head": True}}
+    for name in ("metrics.json", "config.yaml", "acc_matrix.csv", "train_log.json"):
+        (tmp_path / name).write_text("{}", encoding="utf-8")
+    assert not run_g1.result_is_complete(tmp_path, cfg)
+    (tmp_path / "metrics_ncm.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "acc_matrix_ncm.csv").write_text("", encoding="utf-8")
+    assert run_g1.result_is_complete(tmp_path, cfg)
