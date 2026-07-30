@@ -1,0 +1,21 @@
+{
+  "run": "resisc45_titans_seed0_legacy_m3_delta_rms_f16_lr0.001_rnever_splitcombined31500_v2",
+  "returncode": 1,
+  "command": [
+    "/usr/bin/python3",
+    "/home/an/RaybanMeta/uav-continual-learning/scripts/run_g1.py",
+    "--config",
+    "/home/an/RaybanMeta/uav-continual-learning/configs/g2_titans_resisc45_selfmod_m3_legacy.yaml",
+    "--skip-existing",
+    "--set",
+    "seed=0",
+    "train.lr=0.001",
+    "train.eval_ncm_head=true",
+    "train.max_state_norm=10000",
+    "train.max_state_norm_growth=10",
+    "log.dir=/home/an/RaybanMeta/uav-continual-learning/artifacts/titan_m3_study",
+    "log.run_tag=legacy"
+  ],
+  "result_dir": "/home/an/RaybanMeta/uav-continual-learning/artifacts/titan_m3_study/results/resisc45_titans_seed0_legacy_m3_delta_rms_f16_lr0.001_rnever_splitcombined31500_v2",
+  "time": "2026-07-26 09:32:14"
+}

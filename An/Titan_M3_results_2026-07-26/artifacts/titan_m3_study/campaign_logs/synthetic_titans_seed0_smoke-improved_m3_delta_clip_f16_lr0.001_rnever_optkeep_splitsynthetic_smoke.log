@@ -1,0 +1,52 @@
+
+[2026-07-26 04:48:14] $ /usr/bin/python3 /home/an/RaybanMeta/uav-continual-learning/scripts/run_g1.py --config /home/an/RaybanMeta/uav-continual-learning/configs/g2_titans_resisc45_selfmod_m3_improved.yaml --skip-existing --set seed=0 train.lr=0.001 train.eval_ncm_head=true train.max_state_norm=10000 train.max_state_norm_growth=10 data.name=synthetic data.split_protocol=synthetic_smoke data.num_classes=6 data.train_per_class=8 data.val_per_class=4 data.test_per_class=4 data.num_tasks=3 data.image_size=32 data.batch_size=8 data.num_workers=0 backbone.name=tinycnn backbone.pretrained=false memory.chunk_size=8 train.epochs_per_task=1 train.eval_future=false train.eval_ncm_head=false log.dir=/home/an/RaybanMeta/uav-continual-learning/artifacts/titan_m3_study log.run_tag=smoke-improved
+== G1 run: dataset=synthetic method=titans seed=0 device=cuda
+task 0: 2 classes [class_2, class_4] | train 16 / val 8 / test 8
+task 1: 2 classes [class_0, class_1] | train 16 / val 8 / test 8
+task 2: 2 classes [class_3, class_5] | train 16 / val 8 / test 8
+[titans] seq=image_seq reset=never chunk=8
+[task 0] classes=[2, 4] | train=16
+
+  epoch 1/1:   0%|          | 0/2 [00:00<?, ?it/s]
+  epoch 1/1:   0%|          | 0/2 [00:00<?, ?it/s, loss=0.777]
+  epoch 1/1:  50%|█████     | 1/2 [00:00<00:00,  1.04it/s, loss=0.777]
+  epoch 1/1:  50%|█████     | 1/2 [00:01<00:00,  1.04it/s, loss=0.651]
+                                                                      
+[titans] reset=never | norm(state) sau task = 39.6179
+[titans]   self-mod v:β=1.00 |W|=0.00
+[titans]   eta_t(avg)=-0.8553  alpha_t/forget-gate(avg)=0.4882
+[task 0] test acc so far: 0.500
+[task 1] classes=[0, 1] | train=16
+
+  epoch 1/1:   0%|          | 0/2 [00:00<?, ?it/s]
+  epoch 1/1:   0%|          | 0/2 [00:00<?, ?it/s, loss=0.678]
+  epoch 1/1:   0%|          | 0/2 [00:00<?, ?it/s, loss=0.635]
+  epoch 1/1: 100%|██████████| 2/2 [00:00<00:00, 17.31it/s, loss=0.635]
+                                                                      
+[titans] reset=never | norm(state) sau task = 45.3809
+[titans]   self-mod v:β=1.00 |W|=0.00
+[titans]   eta_t(avg)=-0.8200  alpha_t/forget-gate(avg)=0.4953
+[task 1] test acc so far: 0.500  0.000
+[task 2] classes=[3, 5] | train=16
+
+  epoch 1/1:   0%|          | 0/2 [00:00<?, ?it/s]
+  epoch 1/1:   0%|          | 0/2 [00:00<?, ?it/s, loss=0.916]
+  epoch 1/1:   0%|          | 0/2 [00:00<?, ?it/s, loss=0.837]
+  epoch 1/1: 100%|██████████| 2/2 [00:00<00:00, 17.49it/s, loss=0.837]
+                                                                      
+[titans] reset=never | norm(state) sau task = 45.7256
+[titans]   self-mod v:β=1.00 |W|=0.00
+[titans]   eta_t(avg)=-0.9543  alpha_t/forget-gate(avg)=0.4860
+[task 2] test acc so far: 0.500  0.500  0.000
+  memory_state.pt đã lưu (norm=45.7256)
+
+== Ma trận accuracy (hàng = sau khi học task i, cột = đánh giá task j)
+[[0.5 0.  0. ]
+ [0.5 0.  0. ]
+ [0.5 0.5 0. ]]
+
+== Kết quả
+  Average Accuracy   : 0.3333  (cao = tốt)
+  Average Forgetting : -0.2500  (thấp = tốt — con số dự án cần giảm)
+  Backward Transfer  : 0.2500  (âm = quên)
+  Saved -> /home/an/RaybanMeta/uav-continual-learning/artifacts/titan_m3_study/results/synthetic_titans_seed0_smoke-improved_m3_delta_clip_f16_lr0.001_rnever_optkeep_splitsynthetic_smoke

@@ -1,0 +1,6 @@
+{
+  "status": "failed",
+  "exception": "FloatingPointError",
+  "message": "M3 nh\u1eadn gradient ch\u1ee9a NaN/Inf",
+  "runtime_sec": 264.2
+}

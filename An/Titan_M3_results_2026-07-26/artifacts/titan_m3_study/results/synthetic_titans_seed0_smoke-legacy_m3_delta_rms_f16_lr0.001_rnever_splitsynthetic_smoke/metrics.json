@@ -1,0 +1,39 @@
+{
+  "dataset": "synthetic",
+  "method": "titans",
+  "seed": 0,
+  "num_tasks": 3,
+  "backbone": "tinycnn",
+  "optimizer": "m3",
+  "lr": 0.001,
+  "optimizer_per_task": true,
+  "average_accuracy": 0.2916666666666667,
+  "average_forgetting": 0.0,
+  "backward_transfer": 0.0,
+  "forward_transfer": null,
+  "trainable_params": 223563,
+  "method_extra_floats": 715275,
+  "runtime_sec": 4.8,
+  "device": "cuda",
+  "torch_version": "2.9.1+cu129",
+  "cuda_device": "Tesla T4",
+  "git_commit": "7750bb16e7c5bd59e06cb353754ae476217cd263",
+  "memory_reset": "never",
+  "m3": {
+    "alpha": 0.5,
+    "frequency": 16,
+    "beta_style": "delta",
+    "update_norm": "rms",
+    "delta": {
+      "alpha": [
+        0.999,
+        0.9999
+      ],
+      "eta": [
+        0.1,
+        0.05
+      ]
+    }
+  },
+  "grad_clip_norm": null
+}

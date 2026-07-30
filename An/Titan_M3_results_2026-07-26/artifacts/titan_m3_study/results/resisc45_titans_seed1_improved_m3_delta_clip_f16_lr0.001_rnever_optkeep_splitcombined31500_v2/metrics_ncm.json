@@ -1,0 +1,6 @@
+{
+  "readout": "ncm_head_posthoc",
+  "average_accuracy": 0.7022222222222223,
+  "average_forgetting": 0.08535714285714284,
+  "backward_transfer": -0.08535714285714284
+}

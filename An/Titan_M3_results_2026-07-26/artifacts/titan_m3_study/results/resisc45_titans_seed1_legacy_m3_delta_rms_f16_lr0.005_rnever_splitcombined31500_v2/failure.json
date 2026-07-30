@@ -1,0 +1,6 @@
+{
+  "status": "failed",
+  "exception": "FloatingPointError",
+  "message": "norm(state)=10039.9381 v\u01b0\u1ee3t ng\u01b0\u1ee1ng 10000.0000 sau task 0",
+  "runtime_sec": 78.5
+}
