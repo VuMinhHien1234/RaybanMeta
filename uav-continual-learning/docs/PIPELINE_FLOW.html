@@ -19,17 +19,27 @@
   .sub{color:var(--muted);font-size:14px;margin-bottom:18px}
   .wrap{display:grid;grid-template-columns:1fr 360px;gap:20px;align-items:start}
   @media(max-width:1000px){.wrap{grid-template-columns:1fr}}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px}
   /* milestone tabs */
   .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
   .tab{cursor:pointer;border:1px solid var(--line);background:var(--panel2);color:var(--txt);
-    padding:8px 14px;border-radius:999px;font-size:13px;font-weight:600;transition:.15s}
+    padding:8px 14px;border-radius:999px;font-family:inherit;text-align:left;font-size:13px;font-weight:600;transition:.15s}
   .tab small{display:block;font-weight:400;color:var(--muted);font-size:11px}
   .tab[data-g="G1"].on{border-color:var(--g1);box-shadow:0 0 0 1px var(--g1) inset}
   .tab[data-g="G2"].on{border-color:var(--g2);box-shadow:0 0 0 1px var(--g2) inset}
   .tab[data-g="G3"].on{border-color:var(--g3);box-shadow:0 0 0 1px var(--g3) inset}
   .tab[data-g="G4"].on{border-color:var(--g4);box-shadow:0 0 0 1px var(--g4) inset}
   .tab.on{background:#0f1520}
+  .page-nav{position:sticky;top:0;z-index:10;display:flex;gap:8px;flex-wrap:wrap;
+    background:linear-gradient(180deg,var(--bg) 0%,rgba(13,17,23,.92) 100%);
+    border-bottom:1px solid var(--line);padding:10px 0 12px;margin:-6px 0 18px}
+  .page-tab{cursor:pointer;border:1px solid var(--line);background:var(--panel2);color:var(--txt);
+    padding:8px 12px;border-radius:8px;font-size:13px;font-weight:600;transition:.15s}
+  .page-tab small{display:block;font-weight:400;color:var(--muted);font-size:11px;margin-top:1px}
+  .page-tab.on{border-color:var(--accent);background:#0f1520;box-shadow:0 0 0 1px var(--accent) inset}
+  .page{display:none}
+  .page.on{display:block}
+  .page-title{font-size:18px;margin:0 0 10px}
   /* pipeline */
   .stage{margin:0 0 6px}
   .stage-label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:14px 0 8px}
@@ -64,19 +74,120 @@
   .mech .card{margin-bottom:12px}
   .mech h3{margin:0 0 6px;font-size:14px}
   .mech .card small{color:var(--muted)}
+  .section{margin-top:22px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  @media(max-width:1000px){.grid2,.grid3,.grid4{grid-template-columns:1fr}}
+  .explain h2{font-size:18px;margin:0 0 8px}
+  .explain h3{font-size:14px;margin:0 0 6px}
+  .explain p,.explain li{font-size:13.5px;color:#d7e0ea}
+  .explain ul,.explain ol{margin:8px 0 0 20px;padding:0}
+  .explain li{margin:6px 0}
+  .pill{display:inline-block;border:1px solid var(--line);background:#0f1520;border-radius:999px;
+    padding:3px 9px;font-size:11px;color:var(--muted);margin:2px 4px 2px 0}
+  .flowline{display:grid;grid-template-columns:120px 1fr;gap:10px;margin:9px 0;align-items:start}
+  .flowline b{font-size:12px;color:#fff;background:#0f1520;border:1px solid var(--line);
+    border-radius:7px;padding:6px 8px;text-align:center}
+  .flowline span{font-size:13.5px;color:#d7e0ea;padding-top:3px}
+  table{width:100%;border-collapse:collapse;font-size:13px;overflow:hidden;border-radius:8px}
+  th,td{border:1px solid var(--line);padding:9px 10px;text-align:left;vertical-align:top}
+  th{background:#0f1520;color:#fff}
+  td{color:#d7e0ea}
+  .table-scroll{overflow-x:auto;border-radius:7px}
+  .table-scroll table{min-width:860px}
+  .callout{border-left:3px solid var(--accent);background:#0f1520;padding:10px 12px;border-radius:8px;
+    color:#d7e0ea;font-size:13.5px}
+  .warn{border-left-color:var(--accent2)}
+  .mini-title{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:10px 0 6px}
+  .trace{display:flex;gap:7px;flex-wrap:wrap;margin:8px 0}
+  .trace span{border:1px solid var(--line);background:#0f1520;border-radius:7px;padding:5px 8px;
+    font-size:12px;color:#d7e0ea}
+  .trace .hot{border-color:var(--accent2);color:#fff}
+  .trace .blue{border-color:var(--g2);color:#fff}
+  .trace .violet{border-color:var(--g3);color:#fff}
+  .pipeline-diagram{margin:14px 0 18px;padding:16px;border:1px solid var(--line);border-radius:10px;
+    background:linear-gradient(180deg,#111a27,#0c111a)}
+  .diagram-key{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px;font-size:12px;color:var(--muted)}
+  .diagram-key span{display:flex;align-items:center;gap:5px}
+  .diagram-key i{display:inline-block;width:10px;height:10px;border-radius:3px;background:#26364a}
+  .diagram-key .k-titans{background:var(--g2)} .diagram-key .k-cms{background:var(--g3)}
+  .diagram-key .k-m3{background:#e6a5ff} .diagram-key .k-output{background:var(--g4)}
+  .pipeline-row{display:grid;grid-template-columns:minmax(110px,1fr) 26px minmax(130px,1.15fr) 26px minmax(110px,1fr) 26px minmax(125px,1.1fr) 26px minmax(130px,1.2fr);align-items:stretch;gap:0}
+  .pipeline-node{min-height:98px;border:1px solid var(--line);border-radius:8px;background:#0f1520;padding:10px;display:flex;flex-direction:column;justify-content:center}
+  .pipeline-node strong{font-size:13px;color:#fff}.pipeline-node small{font-size:11px;line-height:1.35;color:var(--muted);margin-top:5px}
+  .pipeline-arrow{display:flex;align-items:center;justify-content:center;color:#6f8196;font-size:22px}
+  .pipeline-node.model{border-color:#4a83ae}.pipeline-node.update{border-color:#a96bc4}.pipeline-node.output{border-color:var(--g4)}
+  .model-lanes{display:grid;gap:5px;margin-top:7px}.model-lanes span{font-size:10px;border-radius:4px;padding:3px 5px;background:#162130;color:#c8d4e2}
+  .model-lanes .titans-lane{border-left:2px solid var(--g2)}.model-lanes .cms-lane{border-left:2px solid var(--g3)}
+  .update-lanes{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:7px}.update-lanes span{font-size:10px;border-radius:4px;padding:3px 5px;background:#241b2a;color:#efd8fa}
+  .diagram-caption{margin:12px 0 0;font-size:12.5px;color:#cbd6e2;line-height:1.5}
+  @media(max-width:850px){.pipeline-row{grid-template-columns:1fr;gap:6px}.pipeline-arrow{height:20px;transform:rotate(90deg)}.pipeline-node{min-height:0}.flowline{grid-template-columns:1fr}.flowline b{text-align:left}}
+  .system-map{margin:14px 0 18px;padding:16px;border:1px solid var(--line);border-radius:8px;background:#101722}
+  .map-heading{display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin:0 0 10px}
+  .map-heading h3{font-size:15px;margin:0;color:#fff}.map-heading span{font-size:11px;color:var(--muted)}
+  .life-cycle{display:grid;grid-template-columns:minmax(120px,1fr) 24px minmax(140px,1.1fr) 24px minmax(160px,1.25fr) 24px minmax(130px,1fr);align-items:stretch}
+  .life-node{position:relative;background:#0d131c;border:1px solid var(--line);border-radius:8px;padding:9px 10px;min-height:70px}
+  .life-node b{display:block;font-size:12px;color:#fff}.life-node small{display:block;margin-top:3px;font-size:10.5px;line-height:1.35;color:var(--muted)}
+  .life-node.focus{border-color:var(--accent);background:#101c2b}.life-node.report{border-color:var(--g4)}
+  .life-arrow{display:flex;align-items:center;justify-content:center;color:#6f8196;font-size:20px}
+  .loop-note{margin:13px 0 8px;padding:8px 10px;border-left:3px solid var(--accent);background:#0d131c;border-radius:0 7px 7px 0;font-size:12px;color:#d4e0ec}
+  .loop-note b{color:#fff}
+  .swimlane{display:grid;grid-template-columns:102px minmax(0,1fr);border:1px solid var(--line);border-bottom:0;background:#0d131c}
+  .swimlane:first-of-type{border-radius:8px 8px 0 0}.swimlane:last-of-type{border-bottom:1px solid var(--line);border-radius:0 0 8px 8px}
+  .lane-label{display:flex;align-items:center;padding:9px;border-right:1px solid var(--line);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#93a4b8;background:#121b28}
+  .lane-body{display:flex;align-items:stretch;gap:5px;padding:7px;min-width:0;overflow-x:auto}
+  .lane-box{flex:1 1 110px;min-width:105px;border:1px solid #344254;border-radius:6px;background:#101925;padding:7px 8px;font-size:11px;line-height:1.32;color:#cdd8e3}
+  .lane-box b{display:block;font-size:11px;color:#fff;margin-bottom:2px}.lane-box small{font-size:10px;color:var(--muted)}
+  .lane-box.titans{border-color:var(--g2);background:#102033}.lane-box.cms{border-color:var(--g3);background:#20162a}.lane-box.m3{border-color:#e6a5ff;background:#251a2a}.lane-box.result{border-color:var(--g4);background:#261b13}
+  .lane-link{flex:0 0 18px;align-self:center;text-align:center;color:#6f8196;font-size:16px}
+  .memory-return{display:flex;align-items:center;gap:8px;margin:8px 0 0 112px;font-size:11px;color:#b9c7d7}
+  .memory-return span{border:1px dashed var(--g2);border-radius:6px;padding:5px 8px;background:#102033;color:#d2e6ff}
+  .memory-return i{font-style:normal;color:var(--g2);font-size:17px}
+  .map-read{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px}
+  .map-read div{font-size:11.5px;color:#cbd6e2;border-top:1px solid var(--line);padding-top:8px}.map-read b{color:#fff}
+  @media(max-width:850px){.life-cycle{grid-template-columns:1fr;gap:5px}.life-arrow{height:18px;transform:rotate(90deg)}.swimlane{grid-template-columns:82px minmax(0,1fr)}.lane-label{font-size:10px;padding:7px}.memory-return{margin-left:90px}.map-read{grid-template-columns:1fr}}
   code{background:#0f1520;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px}
   .hint{font-size:12px;color:var(--muted);margin-top:10px}
 </style>
 </head>
 <body>
-  <h1>UAV Continual Learning — luồng pipeline & cách code hoạt động</h1>
+  <h1>UAV Continual Learning — luồng pipeline &amp; cách code hoạt động</h1>
   <div class="sub">Chọn mốc <b>G1→G4</b> để xem thành phần nào tham gia. Bấm vào từng khối để đọc giải thích + tên file nguồn.</div>
 
+  <nav class="page-nav" id="page-nav" aria-label="Điều hướng tài liệu">
+    <button type="button" class="page-tab on" data-page="overview">1. Tổng quan<small>đọc nhanh + sơ đồ tương tác</small></button>
+    <button type="button" class="page-tab" data-page="flow">2. Luồng xử lý<small>input → forward → backward → kết quả</small></button>
+    <button type="button" class="page-tab" data-page="components">3. Thành phần<small>phân biệt Titans/CMS/M3/HOPE</small></button>
+    <button type="button" class="page-tab" data-page="results">4. Đọc kết quả<small>R, accuracy, forgetting, log</small></button>
+  </nav>
+
+<main>
+<section class="page on" id="page-overview">
+  <div class="card explain section" style="margin-top:0;margin-bottom:18px">
+    <h2>Đọc Nhanh Trong 5 Phút</h2>
+    <p>
+      Dự án này không phải chỉ “train một model phân loại ảnh”. Bài toán là <b>continual learning</b>:
+      UAV nhìn thấy nhóm class mới theo từng đợt, phải học class mới nhưng vẫn nhớ class cũ.
+      Vì vậy kết quả quan trọng không chỉ là accuracy cuối, mà là <b>model quên bao nhiêu</b>.
+    </p>
+    <div class="grid4" style="margin-top:10px">
+      <div><span class="pill">G1</span><h3>Baseline</h3><p>Đặt mốc so sánh: FineTune, EWC, Replay, LwF, NCM. Trả lời câu: “Nếu không có Nested Learning thì mạnh tới đâu?”.</p></div>
+      <div><span class="pill">G2</span><h3>Titans</h3><p>Thêm bộ nhớ nhanh tự ghi trong lúc forward. Trả lời câu: “Memory sống xuyên task có giúp nhớ hơn không?”.</p></div>
+      <div><span class="pill">G3</span><h3>CMS + optimizer</h3><p>Cho backbone học theo nhiều nhịp nhanh/chậm. Optimizer bên trong có thể là AdamW hoặc M3.</p></div>
+      <div><span class="pill">G4</span><h3>HOPE</h3><p>Ghép Titans + CMS; optimizer có thể là AdamW/M3. Câu chính: “Nhiều tầng ký ức chạy chung có tốt hơn từng phần riêng lẻ không?”.</p></div>
+    </div>
+    <div class="callout warn" style="margin-top:12px">
+      Cách nhớ ngắn gọn: <b>Titans</b> là bộ nhớ trong model, <b>CMS</b> là lịch cập nhật tầng model,
+      <b>M3</b> là optimizer có ký ức gradient, còn <b>HOPE</b> là cấu hình ghép các tầng ký ức đó lại.
+    </div>
+  </div>
+
   <div class="tabs" id="tabs">
-    <div class="tab" data-g="G1">G1 — Baseline<small>backbone + head, 5 method chống quên</small></div>
-    <div class="tab on" data-g="G2">G2 — Titans<small>thêm bộ nhớ nhanh + state</small></div>
-    <div class="tab" data-g="G3">G3 — CMS<small>optimizer đa tần số</small></div>
-    <div class="tab" data-g="G4">G4 — HOPE<small>Titans + CMS hợp nhất</small></div>
+    <button type="button" class="tab" data-g="G1" aria-pressed="false">G1 — Baseline<small>backbone + head, 5 method chống quên</small></button>
+    <button type="button" class="tab on" data-g="G2" aria-pressed="true">G2 — Titans<small>thêm bộ nhớ nhanh + state</small></button>
+    <button type="button" class="tab" data-g="G3" aria-pressed="false">G3 — CMS<small>optimizer đa tần số</small></button>
+    <button type="button" class="tab" data-g="G4" aria-pressed="false">G4 — HOPE<small>Titans + CMS hợp nhất</small></button>
   </div>
 
   <div class="wrap">
@@ -159,24 +270,301 @@
   <!-- MECHANISMS -->
   <div class="mech">
     <div class="stage-label" style="margin-top:22px">Ba cơ chế cốt lõi (điểm khó nhất của dự án)</div>
-    <div class="wrap" style="grid-template-columns:1fr 1fr 1fr">
+    <div class="grid3">
       <div class="card"><h3 style="color:var(--g2)">Titans — bộ nhớ tự ghi</h3>
         <small>models/memory.py · titans_head.py</small>
-        <p>Bộ nhớ <b>vừa đọc vừa tự sửa trọng số ngay trong lúc chạy</b> (không chỉ khi train). Mỗi lần "nhìn" một chuỗi ảnh, nó ghi cái mới vào <code>state</code> theo delta-rule. Đưa <code>state</code> cũ vào lần sau = nhớ xuyên thời gian/xuyên task.</p>
-        <p><span class="k">2 luật an toàn:</span> detach state mỗi batch (không nổ RAM) &amp; eval trên bản sao (không làm bẩn ký ức).</p>
+        <p>Bộ nhớ <b>vừa đọc vừa tự sửa trạng thái</b> trong lúc chạy forward. Mỗi batch ảnh đi qua memory sẽ sinh <code>new_state</code>; nếu reset là <code>task</code> hoặc <code>never</code> thì state này được giữ lại cho batch sau.</p>
+        <p><span class="k">Vai trò thật:</span> học nhanh các mẫu vừa gặp mà không cần mở toàn bộ backbone. Nó giống “sổ tay ngắn hạn” nằm sau backbone.</p>
+        <p><span class="k">2 luật an toàn:</span> detach state mỗi batch để không nổ RAM, eval trên bản sao để không làm bẩn ký ức khi chấm điểm. Các config Titans/HOPE hiện hành bật thêm 4 cờ ổn định để state bền hơn.</p>
       </div>
       <div class="card"><h3 style="color:var(--g3)">CMS — đa tần số</h3>
         <small>models/cms.py · optim/cms_optimizer.py</small>
-        <p>Chia tham số thành các <b>tier</b> có chu kỳ khác nhau: tier <span class="k">nhanh</span> cập nhật mỗi bước (học cái mới); tier <span class="k">chậm</span> chỉ cập nhật 16 bước/lần bằng gradient gộp (gần như đứng yên = giữ kiến thức cũ).</p>
-        <p>Bằng chứng đúng cơ chế: <code>‖Δw‖</code> tier chậm ≈ 0%, tier nhanh lớn.</p>
+        <p>Chia tham số ViT thành các <b>tier</b>: nhanh, vừa, chậm. Tier nhanh cập nhật mỗi bước; tier chậm chỉ cập nhật sau nhiều bước bằng gradient tích luỹ.</p>
+        <p><span class="k">Vai trò thật:</span> cho model học cái mới nhưng không để mọi tầng đổi ào ào. Tầng chậm giữ kiến thức pretrained/cũ, tầng nhanh thích nghi với task mới.</p>
+        <p>Bằng chứng đúng cơ chế: log <code>‖Δw‖</code> tier chậm phải nhỏ hơn tier nhanh.</p>
       </div>
       <div class="card"><h3 style="color:#e6a5ff">M3 — optimizer là bộ nhớ</h3>
         <small>optim/m3.py</small>
-        <p>Thay AdamW. Giữ <b>2 tầng ký ức gradient</b>: m1 (nhanh) + m2 (chậm), rồi "làm gọn hướng" bằng Newton–Schulz kiểu Muon. <code>update_norm=rms</code> là cầu chì chống bước nhảy quá lớn.</p>
-        <p><span class="k">HOPE (G4)</span> = Titans (nhớ nhanh) + CMS (backbone đa tần số) chạy chung — đúng cấu trúc "nhiều tầng ký ức" của paper.</p>
+        <p>Thay AdamW. M3 giữ <b>2 tầng ký ức gradient</b>: <code>m1</code> nhanh cập nhật mỗi bước, <code>m2</code> chậm cập nhật mỗi <code>frequency</code> bước. Sau đó dùng Newton-Schulz kiểu Muon để làm hướng update cân bằng hơn.</p>
+        <p><span class="k">Vai trò thật:</span> không quyết định model nhìn ảnh thế nào; nó quyết định sửa trọng số theo hướng nào và nhớ lịch sử gradient ra sao.</p>
+        <p><code>update_norm=clip</code> là cầu chì tránh update quá lớn; <code>delta</code> là bản xấp xỉ delta-rule thực dụng của project.</p>
       </div>
     </div>
   </div>
+</section>
+
+<section class="page" id="page-flow">
+  <div class="section explain">
+    <h2 class="page-title">2. Luồng xử lý</h2>
+    <div class="stage-label">Bản đồ tổng thể — hai chiều của một experiment</div>
+    <div class="system-map" aria-label="Bản đồ toàn bộ pipeline continual learning theo thời gian và theo một batch">
+      <div class="diagram-key">
+        <span><i></i> Luồng dữ liệu/chung</span><span><i class="k-titans"></i> Titans: state trên feature</span>
+        <span><i class="k-cms"></i> CMS: lịch update theo tier</span><span><i class="k-m3"></i> M3: state của gradient</span>
+        <span><i class="k-output"></i> Đánh giá &amp; kết quả</span>
+      </div>
+      <div class="map-heading"><h3>Chiều ngang: vòng đời toàn experiment</h3><span>Một experiment có T task, chạy từ trái sang phải</span></div>
+      <div class="life-cycle">
+        <div class="life-node"><b>0. Config &amp; seed</b><small>Chọn dataset, task split, model, method, LR, optimizer, reset mode.</small></div>
+        <div class="life-arrow" aria-hidden="true">→</div>
+        <div class="life-node"><b>1. Dataset → task stream</b><small>Class được chia thành Task 0 → Task 1 → ... → Task T−1.</small></div>
+        <div class="life-arrow" aria-hidden="true">→</div>
+        <div class="life-node focus"><b>2. Lặp train + evaluate từng task</b><small>Mỗi task chứa nhiều batch. Sơ đồ dọc bên dưới phóng to đúng một batch.</small></div>
+        <div class="life-arrow" aria-hidden="true">→</div>
+        <div class="life-node report"><b>3. Kết quả &amp; đối chiếu</b><small>R, accuracy, forgetting, logs cơ chế, bảng so sánh các run.</small></div>
+      </div>
+      <div class="loop-note"><b>Zoom vào Task t:</b> train nhiều batch của task mới → chấm lại toàn bộ Task 0..t → ghi hàng thứ t vào ma trận R → chuyển sang Task t+1. Đây là vòng lặp tạo nên “continual learning”.</div>
+
+      <div class="map-heading"><h3>Chiều dọc: bên trong một batch train</h3><span>Ảnh đi xuống; gradient đi ngược về trọng số</span></div>
+      <div class="swimlane">
+        <div class="lane-label">Dữ liệu</div>
+        <div class="lane-body"><div class="lane-box"><b>Batch (x, y)</b><small>x: ảnh UAV/vệ tinh<br>y: nhãn class thật</small></div><div class="lane-link">→</div><div class="lane-box"><b>Task t</b><small>Chỉ các class của task hiện tại là class mới được học.</small></div></div>
+      </div>
+      <div class="swimlane">
+        <div class="lane-label">Forward<br>đường ảnh</div>
+        <div class="lane-body"><div class="lane-box"><b>Backbone ViT</b><small>ảnh → feature h<br>G2 frozen; G3/G4 có thể mở</small></div><div class="lane-link">→</div><div class="lane-box titans"><b>Titans (G2/G4)</b><small>h + state → h′ + new_state<br>Không dùng thì đi thẳng qua.</small></div><div class="lane-link">→</div><div class="lane-box"><b>Head classifier</b><small>h′ → logits: điểm cho mọi class</small></div></div>
+      </div>
+      <div class="swimlane">
+        <div class="lane-label">Loss</div>
+        <div class="lane-body"><div class="lane-box"><b>mask_logits</b><small>Ẩn class chưa hợp lệ theo giao thức task.</small></div><div class="lane-link">→</div><div class="lane-box"><b>CE loss + method loss</b><small>Cross-Entropy; EWC/LwF/Replay có thể cộng loss phụ.</small></div></div>
+      </div>
+      <div class="swimlane">
+        <div class="lane-label">Backward<br>đường gradient</div>
+        <div class="lane-body"><div class="lane-box"><b>loss.backward()</b><small>Tạo gradient g ngược từ head về memory/backbone đang train.</small></div><div class="lane-link">→</div><div class="lane-box cms"><b>CMS (G3/G4)</b><small>Chọn tier fast/mid/slow có đến kỳ update không; tier chưa đến kỳ giữ grad=None.</small></div><div class="lane-link">→</div><div class="lane-box m3"><b>M3 hoặc AdamW</b><small>M3: g → m1/m2 → update; AdamW: moment chuẩn → update.</small></div></div>
+      </div>
+      <div class="swimlane">
+        <div class="lane-label">Trạng thái<br>&amp; trọng số</div>
+        <div class="lane-body"><div class="lane-box titans"><b>State Titans</b><small>new_state được detach; qua task hay không phụ thuộc reset image/task/never.</small></div><div class="lane-link">+</div><div class="lane-box m3"><b>State M3 (nếu chọn M3)</b><small>m1 nhanh, m2 chậm lưu lịch sử gradient; chỉ xuyên task khi <code>optimizer_per_task=false</code>.</small></div><div class="lane-link">→</div><div class="lane-box"><b>θ mới</b><small>Trọng số model sau update, trở thành đầu vào cho batch kế tiếp.</small></div></div>
+      </div>
+      <div class="memory-return"><span>state Titans quay lại batch sau</span><i>↺</i><span>θ mới quay lại forward của batch sau</span></div>
+      <div class="swimlane" style="margin-top:8px">
+        <div class="lane-label">Sau task</div>
+        <div class="lane-body"><div class="lane-box result"><b>Evaluate Task 0..t</b><small>Eval không làm bẩn state; đo model còn nhớ task cũ không.</small></div><div class="lane-link">→</div><div class="lane-box result"><b>Ma trận R &amp; metrics</b><small><code>R[t,j]</code> = accuracy Task j sau khi học Task t; từ R tính forgetting, average accuracy, log state/Δw.</small></div></div>
+      </div>
+      <div class="map-read"><div><b>Đọc theo ngang:</b> thấy lịch sử thí nghiệm từ lúc chọn config đến báo cáo cuối.</div><div><b>Đọc theo dọc:</b> thấy dữ liệu, state và gradient có ba đường riêng nhưng gặp nhau ở model.</div><div><b>Phạm vi từng mốc:</b> G1 dùng đường lõi; G2 thêm Titans; G3 thêm CMS; G4 là Titans + CMS. M3 là lựa chọn optimizer, không phải một mốc riêng.</div></div>
+    </div>
+    <div class="stage-label">Luồng train chi tiết — chuyện gì xảy ra khi chạy một experiment?</div>
+    <div class="card">
+      <div class="flowline"><b>1. Đọc config</b><span>Script trong <code>scripts/</code> đọc YAML: chọn dataset, số task, model, method, optimizer, LR, CMS tier, Titans reset.</span></div>
+      <div class="flowline"><b>2. Tạo dataset</b><span><code>sources.py</code> chuẩn hoá EuroSAT/RESISC45/synthetic thành cùng một dạng <code>DataSource</code>.</span></div>
+      <div class="flowline"><b>3. Chia task</b><span><code>stream.py</code> chia class thành các đợt. Ví dụ EuroSAT 10 class, 5 task thì mỗi task học 2 class mới.</span></div>
+      <div class="flowline"><b>4. Tạo model</b><span>G1 dùng backbone + head/NCM. G2 dùng <code>TitansClassifier</code>. G3 mở backbone với CMS. G4 dùng <code>HOPEClassifier</code>.</span></div>
+      <div class="flowline"><b>5. Tạo method</b><span><code>methods.py</code> tạo đối tượng có các hook <code>begin_task</code>, <code>penalty</code>, <code>extra_batch_loss</code>, <code>end_task</code>.</span></div>
+      <div class="flowline"><b>6. Train task t</b><span><code>engine.py</code> lấy từng batch, model forward, che logit bằng <code>mask_logits</code>, tính CE loss, cộng penalty/loss phụ nếu có, rồi optimizer step.</span></div>
+      <div class="flowline"><b>7. Kết thúc task</b><span>EWC lưu Fisher, Replay lưu ảnh cũ, Titans/HOPE log <code>norm(state)</code>, CMS/HOPE log <code>‖Δw‖</code> từng tier.</span></div>
+      <div class="flowline"><b>8. Chấm lại</b><span>Sau task t, engine đánh giá lại toàn bộ task 0..t. Đây là điểm khác train ảnh bình thường: luôn kiểm tra model còn nhớ task cũ không.</span></div>
+      <div class="flowline"><b>9. Ghi kết quả</b><span>Ma trận <code>R</code>, metrics, config, log được ghi vào thư mục <code>results/&lt;tên_run&gt;/</code>; bảng tổng hợp nằm ở <code>results/baseline_table.csv</code>/<code>.md</code>.</span></div>
+    </div>
+  </div>
+
+  <div class="section explain">
+    <div class="stage-label">Luồng của Titans, CMS, M3, HOPE — input đi qua đâu, mỗi phần can thiệp lúc nào?</div>
+    <div class="grid2">
+      <div class="card">
+        <h3 style="color:var(--g2)">G2 Titans: ảnh → feature → memory → logits</h3>
+        <div class="trace">
+          <span>ảnh x</span><span>backbone frozen</span><span>feature h</span><span class="blue">SeqAdapter</span><span class="blue">TitansMemory + state</span><span>post_norm</span><span>head</span><span>logits</span>
+        </div>
+        <div class="mini-title">Forward, tức lúc model nhìn ảnh</div>
+        <ul>
+          <li><b>Input:</b> một batch ảnh <code>x</code> và nhãn <code>y</code>.</li>
+          <li><b>Backbone:</b> ViT đã pretrained biến ảnh thành vector feature. Ở G2 backbone bị đóng băng, nên nó chỉ làm “mắt nhìn”, không học thêm.</li>
+          <li><b>SeqAdapter:</b> đổi feature ảnh thành dạng chuỗi để Titans xử lý. Với <code>image_seq</code>, mỗi ảnh được xem như một bước trong chuỗi.</li>
+          <li><b>TitansMemory:</b> đọc chuỗi feature cùng <code>state</code> cũ, sinh feature đã được memory bổ sung và <code>new_state</code>. Nếu reset là <code>never</code>, state sống xuyên task; nếu <code>task</code>, state reset đầu task; nếu <code>image</code>, gần như không giữ state.</li>
+          <li><b>Head:</b> nhận feature sau memory và trả <code>logits</code>, tức điểm số cho từng class.</li>
+        </ul>
+        <div class="mini-title">Backward, tức lúc học</div>
+        <ul>
+          <li>Loss được tính sau <code>mask_logits</code>, chỉ tính trên class hợp lệ của task hiện tại.</li>
+          <li>Gradient chủ yếu sửa Titans memory/head; backbone không sửa ở G2.</li>
+          <li>State được <code>detach</code> sau batch: giữ giá trị ký ức nhưng không kéo graph gradient quá dài.</li>
+        </ul>
+        <div class="mini-title">Kết quả trả ra</div>
+        <p>Trong train/eval, output trực tiếp là <code>logits</code> rồi đổi thành dự đoán class. Trong báo cáo thí nghiệm, output là accuracy từng task, <code>norm(state)</code>, và metrics chống quên.</p>
+      </div>
+
+      <div class="card">
+        <h3 style="color:var(--g3)">G3 CMS: ảnh vẫn đi qua model, CMS điều khiển gradient</h3>
+        <div class="trace">
+          <span>ảnh x</span><span>backbone mở</span><span>feature</span><span>head</span><span>logits</span><span>loss</span><span class="violet">grad tích luỹ</span><span class="violet">tier due?</span><span>update</span>
+        </div>
+        <div class="mini-title">Forward</div>
+        <ul>
+          <li><b>Input ảnh</b> vẫn đi qua backbone và head như model phân loại bình thường.</li>
+          <li>CMS không thay đổi đường đi của ảnh trong forward. Nó không phải layer dự đoán, không trực tiếp sinh logits.</li>
+        </ul>
+        <div class="mini-title">Backward / optimizer step</div>
+        <ul>
+          <li><code>models/cms.py</code> chia tham số thành tier: <b>fast</b>, <b>mid</b>, <b>slow</b>. Head/memory thường ở fast; block ViT được chia theo cấu hình; attention/norm thường vào slow hoặc freeze.</li>
+          <li><code>CMSOptimizer</code> tích luỹ gradient cho mọi tier sau mỗi batch.</li>
+          <li>Đến bước update: tier fast có <code>period=1</code> nên cập nhật mỗi bước; tier slow có thể <code>period=16</code> hoặc <code>64</code> nên nhiều batch mới cập nhật một lần.</li>
+          <li>Tier chưa tới hạn bị đặt <code>grad=None</code>, optimizer bên trong bỏ qua, trọng số tier đó đứng yên.</li>
+        </ul>
+        <div class="mini-title">Kết quả trả ra</div>
+        <p>Người dùng không nhận “output CMS” riêng. CMS thể hiện qua model sau train tốt hơn/ít quên hơn và log <code>[cms] ‖Δw‖ fast/mid/slow</code> để chứng minh tier chậm thật sự đổi ít.</p>
+      </div>
+
+      <div class="card">
+        <h3 style="color:#e6a5ff">M3: không nằm trên đường ảnh, nằm ở đường sửa trọng số</h3>
+        <div class="trace">
+          <span>loss</span><span>backward</span><span>gradient g</span><span class="hot">m1 nhanh</span><span class="hot">m2 chậm</span><span>Newton-Schulz</span><span>update_norm</span><span>sửa w</span>
+        </div>
+        <div class="mini-title">Vị trí trong pipeline</div>
+        <ul>
+          <li>M3 không nhận ảnh trực tiếp. Nó nhận <code>gradient</code> sau khi <code>loss.backward()</code>.</li>
+          <li>Nếu không có CMS, M3 sửa các tham số có gradient ở mỗi bước.</li>
+          <li>Nếu có CMS, M3 nằm bên trong <code>CMSOptimizer</code>; CMS quyết tier nào được đưa gradient vào M3 ở bước đó.</li>
+        </ul>
+        <div class="mini-title">Cách hoạt động</div>
+        <ul>
+          <li><code>m1</code> là ký ức nhanh của gradient, cập nhật mỗi bước.</li>
+          <li><code>m2</code> là ký ức chậm, chỉ cập nhật mỗi <code>frequency</code> bước bằng gradient gộp.</li>
+          <li>Newton-Schulz làm hướng update của tensor ma trận cân bằng hơn; <code>update_norm=clip</code> chặn update quá lớn.</li>
+          <li>Learning rate quyết định bước sửa trọng số mạnh bao nhiêu sau khi đã có hướng update.</li>
+        </ul>
+        <div class="mini-title">Kết quả trả ra</div>
+        <p>M3 trả ra model đã được cập nhật trọng số. Người dùng cuối không thấy M3 trực tiếp; ta đánh giá M3 bằng cách so accuracy/forgetting với AdamW cùng cấu hình.</p>
+      </div>
+
+      <div class="card">
+        <h3 style="color:var(--g4)">G4 HOPE: Titans + CMS + optimizer chạy chung</h3>
+        <div class="trace">
+          <span>ảnh x</span><span class="violet">backbone mở + CMS tier</span><span>feature</span><span class="blue">Titans state</span><span>head</span><span>logits</span><span>loss</span><span class="hot">M3/AdamW</span><span>metrics</span>
+        </div>
+        <div class="mini-title">Forward</div>
+        <ul>
+          <li><b>Input ảnh</b> đi qua backbone ViT, nhưng khác G2: backbone được mở để học.</li>
+          <li>Feature từ backbone đi vào SeqAdapter rồi TitansMemory. Memory dùng state cũ để bổ sung thông tin ngữ cảnh/kinh nghiệm đã nhìn.</li>
+          <li>Feature sau memory đi qua residual + LayerNorm + head để ra <code>logits</code>.</li>
+        </ul>
+        <div class="mini-title">Backward / cập nhật</div>
+        <ul>
+          <li>Loss tạo gradient cho head, memory và backbone.</li>
+          <li>CMS chia các tham số đó thành tier. Memory/head thường nhanh; block backbone có nhịp nhanh/vừa/chậm; nền pretrained có thể freeze.</li>
+          <li>M3 hoặc AdamW là optimizer bên trong. Nếu dùng M3, ngoài state Titans còn có ký ức gradient <code>m1/m2</code>.</li>
+          <li>Rủi ro riêng của HOPE là <b>feature drift</b>: backbone thay đổi làm không gian feature dưới chân memory đổi theo. Vì vậy phải đọc <code>[hope] norm(state)</code> cùng <code>[cms] ‖Δw‖</code>.</li>
+        </ul>
+        <div class="mini-title">Kết quả trả cho người dùng</div>
+        <p>Khi dùng như classifier, HOPE trả logits/dự đoán class. Khi chạy đồ án, kết quả cuối là bảng run: accuracy, forgetting, ma trận R, log state, log tier, và bảng so sánh HOPE với baseline/Titans/CMS.</p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3>Tóm tắt một dòng để ghi nhớ</h3>
+      <div class="trace">
+        <span>Dataset</span><span>Task stream</span><span>Batch ảnh</span><span>Model forward</span><span>Logits</span><span>Mask class</span><span>Loss</span><span>Backward</span><span>Optimizer/CMS/M3</span><span>Model mới</span><span>Evaluate task cũ+mới</span><span>R + metrics</span>
+      </div>
+      <p>
+        Nếu nói theo ngôn ngữ sản phẩm: input là ảnh UAV/vệ tinh; output tức thời là class dự đoán.
+        Nếu nói theo đồ án: input là cả một stream nhiều task; output cuối cùng là bằng chứng model học liên tục tốt hay không,
+        gồm accuracy hiện tại, mức quên, và log chứng minh cơ chế Titans/CMS/M3/HOPE chạy đúng.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="page" id="page-components">
+  <div class="section explain">
+    <h2 class="page-title">3. Thành phần và cách phân biệt</h2>
+    <div class="stage-label">Phân biệt các thành phần dễ nhầm</div>
+    <div class="card">
+      <div class="table-scroll" aria-label="Bảng so sánh các thành phần, có thể cuộn ngang trên màn hình hẹp">
+      <table>
+        <thead>
+          <tr><th>Thành phần</th><th>Nó nằm ở đâu?</th><th>Nó sửa cái gì?</th><th>Nó giải quyết vấn đề gì?</th><th>Dấu hiệu/log cần đọc</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>AdamW</b></td>
+            <td><code>torch.optim</code>, gọi qua <code>optim/__init__.py</code></td>
+            <td>Trọng số model, theo gradient hiện tại + momentum Adam.</td>
+            <td>Optimizer chuẩn, ổn định, làm mốc đối chứng cho M3.</td>
+            <td>Không có log riêng; xem loss/accuracy.</td>
+          </tr>
+          <tr>
+            <td><b>M3</b></td>
+            <td><code>optim/m3.py</code></td>
+            <td>Trọng số model, nhưng hướng sửa dùng memory gradient nhanh/chậm.</td>
+            <td>Đưa ý tưởng Nested Learning vào optimizer: optimizer cũng có nhiều tầng ký ức.</td>
+            <td>So với AdamW cùng config; chú ý NaN/Inf, accuracy, forgetting.</td>
+          </tr>
+          <tr>
+            <td><b>Titans</b></td>
+            <td><code>models/titans_head.py</code>, <code>models/memory.py</code></td>
+            <td>State bộ nhớ sau backbone; G2 thường đóng băng backbone.</td>
+            <td>Nhớ nhanh dữ liệu mới theo chuỗi ảnh/batch, có thể sống xuyên task.</td>
+            <td><code>[titans] norm(state)</code>, reset <code>image/task/never</code>.</td>
+          </tr>
+          <tr>
+            <td><b>CMS</b></td>
+            <td><code>models/cms.py</code>, <code>optim/cms_optimizer.py</code></td>
+            <td>Tốc độ/chu kỳ cập nhật các tier tham số backbone/head/memory.</td>
+            <td>Tránh mọi tầng thay đổi quá nhanh, giảm quên bằng update đa tần số.</td>
+            <td><code>[cms] tier_report</code>, <code>[cms] ‖Δw‖ fast/mid/slow</code>.</td>
+          </tr>
+          <tr>
+            <td><b>HOPE</b></td>
+            <td><code>models/hope.py</code>, method <code>hope</code></td>
+            <td>Vừa dùng Titans state, vừa mở backbone và để CMS điều tiết.</td>
+            <td>Bản hợp nhất G4: memory nhanh + backbone nhiều nhịp + optimizer có thể là M3.</td>
+            <td>Cần đọc cả <code>[hope] norm(state)</code> và <code>[cms] ‖Δw‖</code>.</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="section explain">
+    <div class="stage-label">Các tầng trong HOPE — vì sao gọi là Nested Learning?</div>
+    <div class="grid2">
+      <div class="card">
+        <h3>Nhìn theo “tầng thời gian”</h3>
+        <ul>
+          <li><b>Head/memory nhanh:</b> đổi nhanh để nhận class mới.</li>
+          <li><b>Backbone tier fast/mid/slow:</b> mỗi nhóm block đổi theo chu kỳ khác nhau.</li>
+          <li><b>M3 m1/m2:</b> optimizer tự giữ ký ức gradient nhanh/chậm.</li>
+          <li><b>State Titans:</b> ký ức dữ liệu đã nhìn, có thể giữ xuyên batch hoặc xuyên task.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Nhìn theo “ai làm gì”</h3>
+        <ul>
+          <li><b>Backbone:</b> biến ảnh thành feature.</li>
+          <li><b>Titans:</b> bổ sung ký ức theo chuỗi vào feature.</li>
+          <li><b>Head:</b> biến feature thành điểm class.</li>
+          <li><b>CMS/M3:</b> không trực tiếp dự đoán; chúng quyết định trọng số được sửa như thế nào.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout" style="margin-top:12px">
+      Điểm cốt lõi của đồ án: không đặt tất cả kiến thức vào một nơi. Có ký ức trong activation/state,
+      ký ức trong trọng số model, ký ức trong optimizer, và mỗi loại sống ở tốc độ khác nhau.
+    </div>
+  </div>
+</section>
+
+<section class="page" id="page-results">
+  <div class="section explain">
+    <h2 class="page-title">4. Cách đọc kết quả</h2>
+    <div class="stage-label">Cách đọc kết quả để biết mô hình có tốt không</div>
+    <div class="grid3">
+      <div class="card">
+        <h3>1. Đọc ma trận R</h3>
+        <p><code>R[i][j]</code> = accuracy trên task j sau khi học xong task i. Đường chéo cao nghĩa là học task mới tốt. Cột cũ tụt mạnh nghĩa là quên.</p>
+      </div>
+      <div class="card">
+        <h3>2. Đọc metrics</h3>
+        <p><b>average_accuracy</b> càng cao càng tốt. <b>average_forgetting</b> càng thấp càng tốt. Đồ án continual learning thường phải nói rõ cả hai.</p>
+      </div>
+      <div class="card">
+        <h3>3. Đọc log cơ chế</h3>
+        <p>Cùng accuracy nhưng cơ chế sai thì chưa tin được. CMS phải có tier chậm đổi ít; Titans/HOPE phải có state hữu hạn, không nhảy quá bất thường.</p>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
 
 <script>
 const MS_NAMES = {G1:"G1 — Baseline",G2:"G2 — Titans",G3:"G3 — CMS",G4:"G4 — HOPE"};
@@ -205,7 +593,7 @@ const INFO = {
   method:{title:"Method — chiến lược chống quên",file:"src/uavcl/methods.py",ms:["G1","G2","G3","G4"],
     body:"Engine gọi các 'hook' (trước/trong/sau task); mỗi method cài hook riêng. <span class='k'>G1:</span> FineTune / EWC / Replay / LwF / NCM. <span class='k'>G2:</span> TitansCL (quản lý state). <span class='k'>G3:</span> CMS (log ‖Δw‖). <span class='k'>G4:</span> HOPE (gộp cả hai)."},
   optim:{title:"Optimizer",file:"src/uavcl/optim/ (m3.py, cms_optimizer.py)",ms:["G1","G2","G3","G4"],
-    body:"<span class='k'>G1/G2:</span> AdamW (chuẩn) hoặc M3. <span class='k'>G3/G4:</span> <b>CMSOptimizer</b> bọc quanh M3/AdamW để chạy đa tần số theo tier. M3 = 'optimizer cũng là bộ nhớ' (2 tầng momentum + Newton–Schulz)."},
+    body:"<span class='k'>G1/G2:</span> AdamW (chuẩn) hoặc M3. <span class='k'>G3/G4:</span> <b>CMSOptimizer</b> bọc quanh M3/AdamW để chạy đa tần số theo tier. AdamW là đối chứng ổn định; M3 là bản Nested Learning hơn vì giữ m1 nhanh + m2 chậm của gradient, rồi dùng Newton-Schulz kiểu Muon để làm hướng update cân bằng hơn."},
   R:{title:"Ma trận kết quả R",file:"src/uavcl/engine.py → run_continual",ms:["G1","G2","G3","G4"],
     body:"Bảng T×T. Đường chéo = học tốt tới đâu. Cột cũ tụt dần ở các hàng sau = quên. Toàn bộ đánh giá đọc từ ma trận này."},
   metrics:{title:"Chỉ số continual learning",file:"src/uavcl/metrics/continual.py",ms:["G1","G2","G3","G4"],
@@ -214,9 +602,25 @@ const INFO = {
 
 let current = "G2";
 
+function showPage(page, updateHash=true){
+  const id = "page-" + page;
+  document.querySelectorAll('.page').forEach(p=>p.classList.toggle('on', p.id===id));
+  document.querySelectorAll('.page-tab').forEach(t=>{
+    const selected = t.dataset.page===page;
+    t.classList.toggle('on', selected);
+    t.setAttribute('aria-current', selected ? 'page' : 'false');
+  });
+  if(updateHash) history.replaceState(null, "", "#" + page);
+  window.scrollTo({top:0, behavior:"smooth"});
+}
+
 function applyMilestone(g){
   current = g;
-  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on', t.dataset.g===g));
+  document.querySelectorAll('.tab').forEach(t=>{
+    const selected = t.dataset.g===g;
+    t.classList.toggle('on', selected);
+    t.setAttribute('aria-pressed', String(selected));
+  });
   document.getElementById('p-ms').textContent = MS_NAMES[g];
   document.querySelectorAll('.blk').forEach(b=>{
     const id=b.dataset.id; const info=INFO[id];
@@ -245,8 +649,16 @@ document.getElementById('tabs').addEventListener('click',e=>{
 document.querySelectorAll('.blk').forEach(b=>{
   b.addEventListener('click',()=>showDetail(b.dataset.id));
 });
+document.getElementById('page-nav').addEventListener('click',e=>{
+  const t=e.target.closest('.page-tab');
+  if(t) showPage(t.dataset.page);
+});
 applyMilestone('G2');
 showDetail('memory');
+const initialPage = (location.hash || "#overview").slice(1);
+if(["overview","flow","components","results"].includes(initialPage)){
+  showPage(initialPage, false);
+}
 </script>
 </body>
 </html>
