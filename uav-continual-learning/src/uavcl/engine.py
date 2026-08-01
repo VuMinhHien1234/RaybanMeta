@@ -177,6 +177,15 @@ def train_one_task(model, method, loader, device, allowed: Sequence[int], train_
                 loss = loss + extra                 # ↳ Cộng loss phụ theo batch (vd ôn bài Replay / distill LwF).
             opt.zero_grad(set_to_none=True)         # ↳ Xoá gradient cũ.
             loss.backward()                         # ↳ Tính gradient (lan truyền ngược).
+            # port từ branch NCM_Head: recipe "M3 improved" cần clip tổng norm gradient.
+            # train.grad_clip_norm không đặt (None) -> bỏ qua, hành vi cũ bất biến.
+            grad_clip = train_cfg.get("grad_clip_norm")
+            if grad_clip is not None:
+                torch.nn.utils.clip_grad_norm_(
+                    (p for p in model.parameters() if p.requires_grad),
+                    max_norm=float(grad_clip),
+                    error_if_nonfinite=True,
+                )
             opt.step()                              # ↳ Cập nhật trọng số.
             run += float(loss.detach()) * y.numel() # ↳ Cộng dồn loss (nhân số mẫu để tính trung bình đúng).
             seen += int(y.numel())
