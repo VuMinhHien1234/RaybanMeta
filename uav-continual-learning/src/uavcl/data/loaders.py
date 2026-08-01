@@ -66,19 +66,24 @@ class TaskDataset(Dataset):
 def build_task_loaders(
     source: DataSource, stream: List[TaskSpec], data_cfg: dict
 ) -> List[Dict[str, DataLoader]]:
-    """Trả về, cho mỗi task, dict {'train','val','test'} DataLoader."""
+    """Build train/validation/test and deterministic prototype loaders per task."""
     image_size = int(data_cfg.get("image_size", 224))  # ↳ Kích cỡ ảnh đưa vào model (224 chuẩn ViT/timm).
     batch_size = int(data_cfg.get("batch_size", 32))   # ↳ Số ảnh mỗi lô.
+    eval_batch_size = int(data_cfg.get("eval_batch_size", batch_size))
     num_workers = int(data_cfg.get("num_workers", 2))  # ↳ Số tiến trình nạp ảnh song song.
     tf_train = build_transforms(image_size, train=True)   # ↳ Transform cho train (có aug).
     tf_eval = build_transforms(image_size, train=False)   # ↳ Transform cho val/test (không aug).
 
-    def dl(split_name: str, idx: List[int], train: bool) -> DataLoader:
+    prototype_batch_size = int(data_cfg.get("prototype_batch_size", batch_size))
+
+    def dl(
+        split_name: str, idx: List[int], train: bool, *, loader_batch_size: int | None = None
+    ) -> DataLoader:
         # ↳ Hàm phụ dựng 1 DataLoader từ tên split + danh sách chỉ số.
         ds = TaskDataset(source.splits[split_name], idx, tf_train if train else tf_eval)
         return DataLoader(
             ds,
-            batch_size=batch_size,
+            batch_size=loader_batch_size or batch_size,
             shuffle=train,                         # ↳ Chỉ xáo khi train; val/test giữ thứ tự cố định.
             num_workers=num_workers,
             pin_memory=torch.cuda.is_available(),  # ↳ Có GPU thì "ghim" RAM để copy lên GPU nhanh hơn.
@@ -90,8 +95,19 @@ def build_task_loaders(
         out.append(
             {
                 "train": dl("train", spec.train_idx, train=True),   # ↳ ...tạo 3 loader tương ứng.
-                "val": dl("val", spec.val_idx, train=False),
-                "test": dl("test", spec.test_idx, train=False),
+                # Cùng train indices nhưng transform eval + thứ tự cố định để prototype tái lập.
+                "prototype": dl(
+                    "train",
+                    spec.train_idx,
+                    train=False,
+                    loader_batch_size=prototype_batch_size,
+                ),
+                "val": dl(
+                    "val", spec.val_idx, train=False, loader_batch_size=eval_batch_size
+                ),
+                "test": dl(
+                    "test", spec.test_idx, train=False, loader_batch_size=eval_batch_size
+                ),
             }
         )
     return out                                     # ↳ Danh sách: phần tử t = bộ loader của task t.

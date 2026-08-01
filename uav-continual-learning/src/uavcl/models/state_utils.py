@@ -87,6 +87,50 @@ def state_to_cpu(state):
     return _tree_map(lambda t: t.detach().cpu(), state)
 
 
+def state_to_device(state, device):
+    """Move every tensor in a nested Titans state to ``device``."""
+    return _tree_map(lambda t: t.detach().to(device), state)
+
+
+def repeat_state_batch(state, batch_size: int):
+    """Clone a batch-1 Titans state into independent state for every image."""
+    if state is None:
+        return None
+    batch_size = int(batch_size)
+    if batch_size <= 0:
+        raise ValueError("batch_size phải dương")
+
+    def along(axis: int):
+        def repeat(t: torch.Tensor) -> torch.Tensor:
+            if t.ndim <= axis:
+                raise ValueError(
+                    f"Không tìm thấy batch axis={axis} trong state tensor {tuple(t.shape)}"
+                )
+            repeats = [1] * t.ndim
+            repeats[axis] = batch_size
+            return t.detach().repeat(*repeats)
+
+        return repeat
+
+    # NeuralMemState.states[1] stores momentum as (order, batch*heads, ...);
+    # other fields store batch*heads on axis 0.
+    fields = getattr(state, "_fields", ())
+    expected = ("seq_index", "weights", "cache_store_segment", "states", "updates")
+    if tuple(fields) == expected:
+        last_update, last_momentum = state.states
+        return type(state)(
+            state.seq_index,
+            _tree_map(along(0), state.weights),
+            _tree_map(along(0), state.cache_store_segment),
+            (
+                _tree_map(along(0), last_update),
+                _tree_map(along(1), last_momentum),
+            ),
+            _tree_map(along(0), state.updates),
+        )
+    raise TypeError(f"Titans state type chưa hỗ trợ nhân batch: {type(state)!r}")
+
+
 def state_norm(state) -> float:
     """sqrt(tổng bình phương norm các tensor float) — 0.0 nếu state rỗng/None."""
     # ↳ Đo "độ lớn" cục ký ức. Theo dõi số này qua các task: nếu nó phình/nổ tức là

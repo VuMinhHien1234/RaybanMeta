@@ -1,0 +1,9 @@
+{
+  "readout": "ncm_posthoc_full_seen_train",
+  "revisit_old_train": true,
+  "feature_protocol": "stream_batch_legacy",
+  "prototype_loader": "train",
+  "average_accuracy": 0.7361904761904762,
+  "average_forgetting": 0.06964285714285715,
+  "backward_transfer": -0.06785714285714287
+}

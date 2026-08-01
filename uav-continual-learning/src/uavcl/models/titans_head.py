@@ -25,8 +25,11 @@ Hai luật an toàn cài sẵn:
 #   an toàn" và 3 chế độ reset ký ức — đọc kỹ docstring trên trước khi đọc code.
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from .memory import TitansMemory
 from .seq_adapter import SeqAdapter
@@ -34,12 +37,43 @@ from .state_utils import (
     clone_state,
     count_floats,
     detach_state,
+    repeat_state_batch,
     state_isfinite,
     state_norm,
     state_to_cpu,
 )
 
 RESET_MODES = ("image", "task", "never")  # ↳ 3 chế độ giữ ký ức hợp lệ (xem docstring).
+FEATURE_PROTOCOLS = ("stream_batch_legacy", "independent_image")
+
+
+@dataclass(frozen=True)
+class FeatureBundle:
+    """Stable backbone and plastic post-memory features from one forward."""
+
+    base: torch.Tensor
+    titans: torch.Tensor
+
+
+def blend_features(base: torch.Tensor, titans: torch.Tensor, gamma: float) -> torch.Tensor:
+    """Interpolate stable ViT and plastic Titans directions for cosine NCM."""
+    gamma = float(gamma)
+    if not 0.0 <= gamma <= 1.0:
+        raise ValueError("blend gamma phải nằm trong [0, 1]")
+    if base.shape != titans.shape:
+        raise ValueError(
+            f"base/titans feature phải cùng shape, nhận {tuple(base.shape)} và "
+            f"{tuple(titans.shape)}"
+        )
+    if gamma == 0.0:
+        return base
+    if gamma == 1.0:
+        return titans
+    return F.normalize(
+        (1.0 - gamma) * F.normalize(base, dim=-1)
+        + gamma * F.normalize(titans, dim=-1),
+        dim=-1,
+    )
 
 # G4 fix (đọc số HOPE --quick 07-17: norm(state) nhảy 262->302->120->201->179, Forgetting
 # 0.956): titans-pytorch ĐÃ CÓ 4 cờ ổn định đúng tinh thần "tự điều chỉnh theo ngữ cảnh"
@@ -144,7 +178,7 @@ class TitansClassifier(nn.Module):
         return self.backbone(x)  # (B, D) pooled  ↳ image_seq: lấy thẳng feature đã gộp.
 
     # ------------------------------------------------------------- features
-    def features(self, x: torch.Tensor) -> torch.Tensor:
+    def _feature_components_stream_batch(self, x: torch.Tensor) -> FeatureBundle:
         """Feature SAU memory (vector h trước head) — (B, D). Dùng cho head Linear và cho
         NCM-head (đòn A): đọc chính feature đã-được-memory-làm-giàu bằng prototype thay vì Linear.
         Giữ NGUYÊN luật vòng đời state: train thì nối+ghi (detach); eval thì đọc BẢN SAO, không ghi."""
@@ -163,8 +197,73 @@ class TitansClassifier(nn.Module):
                 init = clone_state(self._state)  # ↳ LUẬT 2: eval trên BẢN SAO ký ức, không làm bẩn state thật.
             out, _ = self.memory(seq, state=init)  # ↳ Bỏ qua state mới (dấu "_") -> không ghi khi eval.
 
-        return self.post_norm(self.adapter.restore(out) + self.adapter.restore(seq))  # residual + chuẩn hoá
+        residual = self.adapter.restore(seq)
+        titans = self.post_norm(self.adapter.restore(out) + residual)
+        return FeatureBundle(base=residual, titans=titans)
         # ↳ Gấp chuỗi về (B,D); cộng residual (đầu vào + đầu ra memory) rồi chuẩn hoá -> ổn định, đỡ mất tín hiệu gốc.
+
+    def _features_stream_batch(self, x: torch.Tensor) -> torch.Tensor:
+        return self._feature_components_stream_batch(x).titans
+
+    def feature_components(
+        self, x: torch.Tensor, protocol: str = "stream_batch_legacy"
+    ) -> FeatureBundle:
+        """Return base and post-memory features from one state transition."""
+        protocol = str(protocol).lower()
+        if protocol not in FEATURE_PROTOCOLS:
+            raise ValueError(f"feature protocol '{protocol}' không hợp lệ, chọn {FEATURE_PROTOCOLS}")
+        if protocol == "stream_batch_legacy":
+            return self._feature_components_stream_batch(x)
+        if self.training:
+            raise RuntimeError("independent_image chỉ dùng khi model ở eval mode")
+        if x.shape[0] == 0:
+            raise ValueError("independent_image không nhận batch rỗng")
+
+        feats = self._extract(x)
+        if self.seq_mode == "image_seq":
+            seq = feats.unsqueeze(1)
+        else:
+            if feats.ndim != 3:
+                raise ValueError(
+                    f"token_seq independent cần (B,P,D), nhận {tuple(feats.shape)}"
+                )
+            seq = feats
+
+        init = None
+        if self.reset_mode in ("task", "never") and self._state is not None:
+            init = repeat_state_batch(self._state, x.shape[0])
+        out, _ = self.memory(seq, state=init)
+        if self.seq_mode == "image_seq":
+            memory_features = out.squeeze(1)
+            residual = seq.squeeze(1)
+        else:
+            memory_features = out.mean(dim=1)
+            residual = seq.mean(dim=1)
+        return FeatureBundle(
+            base=residual,
+            titans=self.post_norm(memory_features + residual),
+        )
+
+    def features(
+        self,
+        x: torch.Tensor,
+        protocol: str = "stream_batch_legacy",
+        blend_gamma: float = 1.0,
+    ) -> torch.Tensor:
+        """Extract post-memory features under an explicit image-evaluation protocol.
+
+        ``stream_batch_legacy`` preserves historical behavior where the images in one
+        DataLoader batch form a temporal sequence. ``independent_image`` evaluates
+        every image from the same memory-state snapshot, so other images and batch
+        boundaries cannot alter its feature.
+        """
+        bundle = self.feature_components(x, protocol=protocol)
+        return blend_features(bundle.base, bundle.titans, blend_gamma)
+
+    def forward_with_features(self, x: torch.Tensor) -> tuple[torch.Tensor, FeatureBundle]:
+        """Training forward exposing features without updating memory twice."""
+        bundle = self.feature_components(x, protocol="stream_batch_legacy")
+        return self.head(bundle.titans), bundle
 
     # -------------------------------------------------------------- forward
     def forward(self, x: torch.Tensor) -> torch.Tensor:

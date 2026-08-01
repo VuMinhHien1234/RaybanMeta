@@ -53,7 +53,9 @@ class FineTune:
     def penalty(self, model) -> Optional[torch.Tensor]:
         return None  # ↳ Không có phần phạt tham số.
 
-    def extra_batch_loss(self, model, x, logits_full, device) -> Optional[torch.Tensor]:
+    def extra_batch_loss(
+        self, model, x, logits_full, device, feature_bundle=None
+    ) -> Optional[torch.Tensor]:
         return None  # ↳ Không có loss phụ theo batch.
 
     @torch.no_grad()
@@ -160,7 +162,9 @@ class Replay(FineTune):
                 break                              # ↳ Mọi class đủ hạn mức -> dừng.
         self._seen = sorted(set(self._seen) | {int(c) for c in allowed})  # ↳ Cập nhật danh sách class có trong kho.
 
-    def extra_batch_loss(self, model, x, logits_full, device) -> Optional[torch.Tensor]:
+    def extra_batch_loss(
+        self, model, x, logits_full, device, feature_bundle=None
+    ) -> Optional[torch.Tensor]:
         # ↳ Loss "ôn bài": bốc ngẫu nhiên ảnh cũ, tính thêm cross-entropy trên chúng.
         if not self._buf:  # task đầu: buffer còn rỗng -> chưa có gì để ôn
             return None
@@ -201,7 +205,9 @@ class LwF(FineTune):
         else:
             self._teacher = None                 # ↳ Task đầu: chưa có gì để giữ.
 
-    def extra_batch_loss(self, model, x, logits_full, device) -> Optional[torch.Tensor]:
+    def extra_batch_loss(
+        self, model, x, logits_full, device, feature_bundle=None
+    ) -> Optional[torch.Tensor]:
         # ↳ Loss distillation: so phân phối class cũ của model hiện tại với teacher.
         if self._teacher is None:
             return None
@@ -236,11 +242,63 @@ class TitansCL(FineTune):
 
     name = "titans"
 
+    def __init__(self, feature_distillation: dict | None = None, **_):
+        cfg = dict(feature_distillation or {})
+        self.distill_enabled = bool(cfg.get("enabled", False))
+        self.distill_teacher = str(cfg.get("teacher", "frozen_backbone")).lower()
+        self.distill_weight = float(cfg.get("weight", 0.05))
+        if self.distill_teacher not in ("frozen_backbone", "previous_titans"):
+            raise ValueError(
+                "feature_distillation.teacher phải là frozen_backbone hoặc previous_titans"
+            )
+        if self.distill_weight < 0.0:
+            raise ValueError("feature_distillation.weight không được âm")
+        self.requires_feature_bundle = self.distill_enabled
+        self._teacher = None
+        self._completed_tasks = 0
+        self._distill_values: list[float] = []
+
     def begin_task(self, model, device, allowed: Sequence[int]) -> None:
         if getattr(model, "reset_mode", None) == "task":
             model.reset_state()  # ↳ Chế độ "task": xoá ký ức khi bắt đầu task mới.
         if hasattr(model, "reset_eta_alpha"):
             model.reset_eta_alpha()  # ↳ Bắt đầu đo η_t/α_t cho task này (vá lỗ hổng Task 2).
+        self._distill_values = []
+        self._teacher = None
+        if (
+            self.distill_enabled
+            and self.distill_teacher == "previous_titans"
+            and self._completed_tasks > 0
+        ):
+            self._teacher = copy.deepcopy(model).to(device)
+            self._teacher.eval()
+            for parameter in self._teacher.parameters():
+                parameter.requires_grad_(False)
+
+    def extra_batch_loss(
+        self, model, x, logits_full, device, feature_bundle=None
+    ) -> Optional[torch.Tensor]:
+        if not self.distill_enabled:
+            return None
+        if feature_bundle is None:
+            raise RuntimeError(
+                "feature distillation cần feature_bundle từ cùng student forward"
+            )
+        student = F.normalize(feature_bundle.titans, dim=1)
+        if self.distill_teacher == "frozen_backbone":
+            target = F.normalize(feature_bundle.base.detach(), dim=1)
+        else:
+            if self._teacher is None:
+                return None
+            with torch.no_grad():
+                target = F.normalize(
+                    self._teacher.feature_components(x).titans, dim=1
+                )
+        raw = (1.0 - (student * target).sum(dim=1)).mean()
+        if not torch.isfinite(raw):
+            raise FloatingPointError("feature distillation loss chứa NaN/Inf")
+        self._distill_values.append(float(raw.detach()))
+        return self.distill_weight * raw
 
     @torch.no_grad()
     def end_task(self, model, loader, device, allowed: Sequence[int]) -> None:
@@ -261,6 +319,21 @@ class TitansCL(FineTune):
                 es = f"{eta:.4f}" if eta is not None else "n/a"
                 as_ = f"{alpha:.4f}" if alpha is not None else "n/a"
                 print(f"[titans]   eta_t(avg)={es}  alpha_t/forget-gate(avg)={as_}")
+        self._completed_tasks += 1
+        self._teacher = None
+
+    def distillation_diagnostics(self) -> dict | None:
+        if not self.distill_enabled:
+            return None
+        mean = sum(self._distill_values) / max(len(self._distill_values), 1)
+        return {
+            "enabled": True,
+            "teacher": self.distill_teacher,
+            "weight": self.distill_weight,
+            "mean_raw_loss": mean,
+            "num_batches": len(self._distill_values),
+            "old_data_revisited": False,
+        }
 
     def footprint_floats(self, model) -> int:
         return int(model.extra_floats()) if hasattr(model, "extra_floats") else 0
@@ -371,4 +444,7 @@ def build_method(name: str, cfg: dict) -> FineTune:
     if name not in _METHODS:
         raise KeyError(f"Unknown method '{name}'. Available: {sorted(_METHODS)}")
     kwargs = dict(cfg.get(name, {}))  # vd cfg['ewc'] = {ewc_lambda:..., max_batches:...}
+    if name == "titans":
+        train_cfg = dict(cfg.get("train", {}) or {})
+        kwargs["feature_distillation"] = train_cfg.get("feature_distillation")
     return _METHODS[name](**kwargs)

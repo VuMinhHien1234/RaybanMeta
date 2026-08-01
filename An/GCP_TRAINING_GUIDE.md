@@ -11,7 +11,7 @@ Thông tin VM hiện tại:
 ```text
 Project ID: project-95a0d104-9d0f-4aa1-ba0
 Zone: us-central1-b
-Instance name: instance-20260725-122154
+Instance name: anmetarayban
 SSH user: vanan05092004
 Image: pytorch-2-9-cu129-ubuntu-2204-nvidia-580-stage
 Hệ điều hành: Ubuntu 22.04 Deep Learning VM
@@ -42,7 +42,7 @@ Thông tin cố định để agent dùng:
 ```text
 Project ID: project-95a0d104-9d0f-4aa1-ba0
 Zone: us-central1-b
-Instance name: instance-20260725-122154
+Instance name: anmetarayban
 Repo: https://github.com/VuMinhHien1234/RaybanMeta.git
 Project path on VM: ~/RaybanMeta/uav-continual-learning
 ```
@@ -50,7 +50,7 @@ Project path on VM: ~/RaybanMeta/uav-continual-learning
 Lệnh SSH chuẩn từ Terminal Mac:
 
 ```bash
-gcloud compute ssh instance-20260725-122154 \
+gcloud compute ssh anmetarayban \
   --zone=us-central1-b \
   --project=project-95a0d104-9d0f-4aa1-ba0
 ```
@@ -58,7 +58,7 @@ gcloud compute ssh instance-20260725-122154 \
 Nếu VM đang tắt, start trước:
 
 ```bash
-gcloud compute instances start instance-20260725-122154 \
+gcloud compute instances start anmetarayban \
   --zone=us-central1-b \
   --project=project-95a0d104-9d0f-4aa1-ba0
 ```
@@ -96,7 +96,7 @@ và ưu tiên thêm:
 Trên Terminal Mac, chạy:
 
 ```bash
-gcloud compute ssh instance-20260725-122154 \
+gcloud compute ssh anmetarayban \
   --zone=us-central1-b \
   --project=project-95a0d104-9d0f-4aa1-ba0
 ```
@@ -104,7 +104,7 @@ gcloud compute ssh instance-20260725-122154 \
 Nếu lệnh báo VM đang tắt, start VM:
 
 ```bash
-gcloud compute instances start instance-20260725-122154 \
+gcloud compute instances start anmetarayban \
   --zone=us-central1-b \
   --project=project-95a0d104-9d0f-4aa1-ba0
 ```
@@ -112,7 +112,7 @@ gcloud compute instances start instance-20260725-122154 \
 Rồi SSH lại:
 
 ```bash
-gcloud compute ssh instance-20260725-122154 \
+gcloud compute ssh anmetarayban \
   --zone=us-central1-b \
   --project=project-95a0d104-9d0f-4aa1-ba0
 ```
@@ -128,7 +128,7 @@ Google Cloud Console -> Compute Engine -> VM instances
 Ở dòng máy:
 
 ```text
-instance-20260725-122154
+anmetarayban
 ```
 
 bấm nút:
@@ -142,7 +142,7 @@ Bạn sẽ vào terminal dạng trình duyệt như ảnh hiện tại.
 Nếu thấy dòng dạng:
 
 ```text
-vanan05092004@instance-20260725-122154:~$
+an@anmetarayban:~$
 ```
 
 thì bạn đã SSH thành công.
@@ -152,13 +152,13 @@ thì bạn đã SSH thành công.
 Mở Cloud Shell rồi chạy:
 
 ```bash
-gcloud compute ssh instance-20260725-122154 --zone=us-central1-b
+gcloud compute ssh anmetarayban --zone=us-central1-b
 ```
 
 Nếu cần chỉ rõ project:
 
 ```bash
-gcloud compute ssh instance-20260725-122154 \
+gcloud compute ssh anmetarayban \
   --zone=us-central1-b \
   --project=project-95a0d104-9d0f-4aa1-ba0
 ```
@@ -372,6 +372,103 @@ tmux ls
 
 ---
 
+## 8A. Theo Dõi Training Từ Terminal Mac
+
+Giữ terminal đang chạy training trong `tmux` như bình thường. Mở **một Terminal Mac thứ hai** để theo dõi. Các lệnh ở phần này chỉ đọc thông tin, không dừng hoặc làm chậm job đang train.
+
+Đặt project mặc định một lần trên Mac nếu chưa làm:
+
+```bash
+gcloud config set project project-95a0d104-9d0f-4aa1-ba0
+```
+
+### Xem Log Chạy Trực Tiếp
+
+Quick EuroSAT ghi vào `run_quick.log` tại thư mục project. Full training ghi vào `run.log`.
+
+```bash
+gcloud compute ssh anmetarayban \
+  --zone=us-central1-b \
+  --project=project-95a0d104-9d0f-4aa1-ba0 \
+  --command "cd ~/RaybanMeta/uav-continual-learning && tail -F run_quick.log"
+```
+
+Khi chạy full, thay tên file:
+
+```bash
+gcloud compute ssh anmetarayban \
+  --zone=us-central1-b \
+  --project=project-95a0d104-9d0f-4aa1-ba0 \
+  --command "cd ~/RaybanMeta/uav-continual-learning && tail -F run.log"
+```
+
+`tail -F` hiển thị dòng log mới ngay khi chúng xuất hiện. Nhấn `Ctrl+C` chỉ dừng việc xem log và đóng phiên SSH theo dõi; training trong `tmux` vẫn tiếp tục. Nếu VM tự shutdown sau khi xong, phiên theo dõi sẽ tự đóng.
+
+Nếu chưa nhớ run nào đang chạy hoặc log chưa xuất hiện, liệt kê các log hiện có:
+
+```bash
+gcloud compute ssh anmetarayban \
+  --zone=us-central1-b \
+  --project=project-95a0d104-9d0f-4aa1-ba0 \
+  --command "cd ~/RaybanMeta/uav-continual-learning && ls -lht run*.log"
+```
+
+### Xem GPU Có Đang Bận Không
+
+Xem một lần từ Mac:
+
+```bash
+gcloud compute ssh anmetarayban \
+  --zone=us-central1-b \
+  --project=project-95a0d104-9d0f-4aa1-ba0 \
+  --command "nvidia-smi"
+```
+
+Nếu thấy process `python`, GPU utilization hoặc GPU memory tăng, training đang thực sự dùng T4. Để theo dõi liên tục, SSH vào Terminal Mac thứ hai rồi chạy trên VM:
+
+```bash
+watch -n 2 nvidia-smi
+```
+
+Nhấn `Ctrl+C` để thoát màn hình theo dõi GPU.
+
+### Xem Process Và Màn Hình tmux
+
+Kiểm tra process train còn sống:
+
+```bash
+gcloud compute ssh anmetarayban \
+  --zone=us-central1-b \
+  --project=project-95a0d104-9d0f-4aa1-ba0 \
+  --command "pgrep -af 'python|run_all|run_g1|run_g2|run_g3|run_g4' || true"
+```
+
+Lấy 120 dòng cuối của cửa sổ `tmux` tên `train`, không cần attach vào nó:
+
+```bash
+gcloud compute ssh anmetarayban \
+  --zone=us-central1-b \
+  --project=project-95a0d104-9d0f-4aa1-ba0 \
+  --command "tmux capture-pane -pt train:0.0 -S -120"
+```
+
+Nếu báo không tìm thấy session `train`, chạy `tmux ls` để xem tên session thực tế, hoặc job đã kết thúc.
+
+### Xem Kết Quả Đang Sinh Ra
+
+Sau khi hoàn thành từng task/run, kiểm tra các artifact mới từ Mac:
+
+```bash
+gcloud compute ssh anmetarayban \
+  --zone=us-central1-b \
+  --project=project-95a0d104-9d0f-4aa1-ba0 \
+  --command "cd ~/RaybanMeta/uav-continual-learning && find artifacts -maxdepth 2 -type f | sort"
+```
+
+Khi thấy `metrics.json`, `acc_matrix.csv` và `config.yaml` trong thư mục run, run đó đã ghi được kết quả. Bảng tổng hợp chỉ hoàn chỉnh sau khi script tổng chạy xong.
+
+---
+
 ## 9. Chạy Quick EuroSAT Trước
 
 Quick dùng để kiểm tra toàn bộ pipeline G1 -> G4 trên EuroSAT. Đây là bước nên chạy trước full RESISC45.
@@ -447,13 +544,13 @@ sudo shutdown -h now
 Nếu dùng Cloud Shell:
 
 ```bash
-gcloud compute instances stop instance-20260725-122154 --zone=us-central1-b
+gcloud compute instances stop anmetarayban --zone=us-central1-b
 ```
 
 Nếu cần chỉ rõ project:
 
 ```bash
-gcloud compute instances stop instance-20260725-122154 \
+gcloud compute instances stop anmetarayban \
   --zone=us-central1-b \
   --project=project-95a0d104-9d0f-4aa1-ba0
 ```
@@ -475,13 +572,13 @@ Disk vẫn tính tiền nhẹ.
 Trong Google Cloud Console:
 
 ```text
-Compute Engine -> VM instances -> chọn instance-20260725-122154 -> Start
+Compute Engine -> VM instances -> chọn anmetarayban -> Start
 ```
 
 Hoặc dùng Cloud Shell:
 
 ```bash
-gcloud compute instances start instance-20260725-122154 --zone=us-central1-b
+gcloud compute instances start anmetarayban --zone=us-central1-b
 ```
 
 Sau khi start, bấm SSH lại. Nếu dùng SSH từ Mac bằng IP public, lưu ý IP có thể đã đổi.
@@ -603,14 +700,14 @@ Sau đó dùng nút **DOWNLOAD FILE** để tải:
 Từ Cloud Shell:
 
 ```bash
-gcloud compute scp --recurse instance-20260725-122154:~/RaybanMeta/uav-continual-learning/artifacts ./artifacts_gcp --zone=us-central1-b
-gcloud compute scp instance-20260725-122154:~/RaybanMeta/uav-continual-learning/run.log ./run.log --zone=us-central1-b
+gcloud compute scp --recurse anmetarayban:~/RaybanMeta/uav-continual-learning/artifacts ./artifacts_gcp --zone=us-central1-b
+gcloud compute scp anmetarayban:~/RaybanMeta/uav-continual-learning/run.log ./run.log --zone=us-central1-b
 ```
 
 Nếu cần chỉ rõ project:
 
 ```bash
-gcloud compute scp --recurse instance-20260725-122154:~/RaybanMeta/uav-continual-learning/artifacts ./artifacts_gcp \
+gcloud compute scp --recurse anmetarayban:~/RaybanMeta/uav-continual-learning/artifacts ./artifacts_gcp \
   --zone=us-central1-b \
   --project=project-95a0d104-9d0f-4aa1-ba0
 ```
@@ -620,8 +717,8 @@ gcloud compute scp --recurse instance-20260725-122154:~/RaybanMeta/uav-continual
 Trên Mac:
 
 ```bash
-gcloud compute scp --recurse instance-20260725-122154:~/RaybanMeta/uav-continual-learning/artifacts "/Users/an/Documents/Do An/artifacts_gcp" --zone=us-central1-b
-gcloud compute scp instance-20260725-122154:~/RaybanMeta/uav-continual-learning/run.log "/Users/an/Documents/Do An/run_gcp.log" --zone=us-central1-b
+gcloud compute scp --recurse anmetarayban:~/RaybanMeta/uav-continual-learning/artifacts "/Users/an/Documents/Do An/artifacts_gcp" --zone=us-central1-b
+gcloud compute scp anmetarayban:~/RaybanMeta/uav-continual-learning/run.log "/Users/an/Documents/Do An/run_gcp.log" --zone=us-central1-b
 ```
 
 ---
@@ -633,7 +730,7 @@ Chỉ xóa VM sau khi đã tải hết kết quả quan trọng về máy.
 Cloud Shell:
 
 ```bash
-gcloud compute instances delete instance-20260725-122154 --zone=us-central1-b
+gcloud compute instances delete anmetarayban --zone=us-central1-b
 ```
 
 Nếu lúc tạo VM bạn chọn:
@@ -655,13 +752,13 @@ Checklist này dành cho agent hoặc người chạy từ Terminal Mac.
 ### 17.1. Từ Terminal Mac: start và SSH vào VM
 
 ```bash
-gcloud compute instances start instance-20260725-122154 \
+gcloud compute instances start anmetarayban \
   --zone=us-central1-b \
   --project=project-95a0d104-9d0f-4aa1-ba0
 ```
 
 ```bash
-gcloud compute ssh instance-20260725-122154 \
+gcloud compute ssh anmetarayban \
   --zone=us-central1-b \
   --project=project-95a0d104-9d0f-4aa1-ba0
 ```

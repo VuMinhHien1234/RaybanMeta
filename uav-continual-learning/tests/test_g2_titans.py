@@ -111,3 +111,42 @@ def test_eval_is_deterministic_and_does_not_touch_state():
     a2 = evaluate(model, loaders[0]["test"], torch.device("cpu"), [0, 1, 2, 3])
     assert a1 == a2                            # chấm 2 lần -> y hệt
     assert model.state_norm() == pytest.approx(norm_before)  # thi không ghi trí nhớ
+
+
+def test_independent_image_features_ignore_permutation_and_batch_boundaries():
+    torch.manual_seed(4)
+    backbone, dim = build_backbone({"name": "tinycnn"})
+    model = TitansClassifier(backbone, dim, 4, {**MEM, "reset": "never"})
+    model.train()
+    model(torch.randn(4, 3, 32, 32))
+    model.eval()
+    norm_before = model.state_norm()
+    x = torch.randn(5, 3, 32, 32)
+    order = torch.tensor([2, 4, 0, 3, 1])
+    inverse = torch.argsort(order)
+
+    together = model.features(x, protocol="independent_image")
+    reference = torch.cat(
+        [model._features_stream_batch(x[i : i + 1]) for i in range(x.shape[0])], dim=0
+    )
+    permuted = model.features(x[order], protocol="independent_image")[inverse]
+    split = torch.cat(
+        [
+            model.features(x[:2], protocol="independent_image"),
+            model.features(x[2:], protocol="independent_image"),
+        ],
+        dim=0,
+    )
+
+    assert torch.allclose(together, reference, atol=1e-5, rtol=1e-5)
+    assert torch.allclose(together, permuted, atol=1e-5, rtol=1e-5)
+    assert torch.allclose(together, split, atol=1e-5, rtol=1e-5)
+    assert model.state_norm() == pytest.approx(norm_before)
+
+
+def test_independent_image_protocol_is_eval_only():
+    backbone, dim = build_backbone({"name": "tinycnn"})
+    model = TitansClassifier(backbone, dim, 4, {**MEM, "reset": "never"})
+    model.train()
+    with pytest.raises(RuntimeError, match="eval mode"):
+        model.features(torch.randn(2, 3, 32, 32), protocol="independent_image")

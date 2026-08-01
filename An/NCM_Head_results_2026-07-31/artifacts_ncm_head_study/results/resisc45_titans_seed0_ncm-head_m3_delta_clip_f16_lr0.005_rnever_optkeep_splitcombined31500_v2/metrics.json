@@ -1,0 +1,39 @@
+{
+  "dataset": "resisc45",
+  "method": "titans",
+  "seed": 0,
+  "num_tasks": 9,
+  "backbone": "vit_small_patch16_224",
+  "optimizer": "m3",
+  "lr": 0.005,
+  "optimizer_per_task": false,
+  "average_accuracy": 0.607936507936508,
+  "average_forgetting": -0.030714285714285715,
+  "backward_transfer": 0.22535714285714287,
+  "forward_transfer": 0.004642857142857143,
+  "trainable_params": 7991858,
+  "method_extra_floats": 25687730,
+  "runtime_sec": 3667.1,
+  "device": "cuda",
+  "torch_version": "2.9.1+cu129",
+  "cuda_device": "Tesla T4",
+  "git_commit": "9b7e496a5630901483c933d0f3023efda452b324",
+  "memory_reset": "never",
+  "m3": {
+    "alpha": 0.5,
+    "frequency": 16,
+    "beta_style": "delta",
+    "update_norm": "clip",
+    "delta": {
+      "alpha": [
+        0.999,
+        0.9999
+      ],
+      "eta": [
+        0.1,
+        0.05
+      ]
+    }
+  },
+  "grad_clip_norm": 1.0
+}

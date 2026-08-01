@@ -1,0 +1,324 @@
+{
+  "train_loss": {
+    "0": [
+      0.6531573235988617
+    ],
+    "1": [
+      0.6111632287502289
+    ],
+    "2": [
+      0.7059979736804962
+    ]
+  },
+  "task_classes": {
+    "0": [
+      2,
+      4
+    ],
+    "1": [
+      0,
+      1
+    ],
+    "2": [
+      3,
+      5
+    ]
+  },
+  "state_norm": {
+    "0": 39.59632575929047,
+    "1": 45.65968314915099,
+    "2": 46.93680438686544
+  },
+  "state_finite": {
+    "0": true,
+    "1": true,
+    "2": true
+  },
+  "accuracy_after_task": {
+    "0": [
+      0.5,
+      0.0,
+      0.0
+    ],
+    "1": [
+      0.5,
+      0.5,
+      0.0
+    ],
+    "2": [
+      0.0,
+      0.75,
+      0.0
+    ]
+  },
+  "ncm_protocol": {
+    "readouts": [
+      "online_current_task",
+      "posthoc_full_seen_train"
+    ],
+    "feature_protocol": "independent_image",
+    "prototype_loader": "prototype",
+    "revisit_policy": {
+      "online_current_task": false,
+      "posthoc_full_seen_train": true
+    }
+  },
+  "ncm_diagnostics": {
+    "0": {
+      "online_current_task": {
+        "samples_encoded": 16,
+        "runtime_sec": 0.228445,
+        "prototype_counts": [
+          0.0,
+          0.0,
+          8.0,
+          0.0,
+          8.0,
+          0.0
+        ],
+        "prototype_norms": [
+          0.0,
+          0.0,
+          0.9999999403953552,
+          0.0,
+          1.0,
+          0.0
+        ],
+        "seen_mask": [
+          false,
+          false,
+          true,
+          false,
+          true,
+          false
+        ],
+        "state_finite": true,
+        "extra_floats": 390,
+        "revisit_old_train": false
+      },
+      "posthoc_full_seen_train": {
+        "samples_encoded": 16,
+        "runtime_sec": 0.065524,
+        "prototype_counts": [
+          0.0,
+          0.0,
+          8.0,
+          0.0,
+          8.0,
+          0.0
+        ],
+        "prototype_norms": [
+          0.0,
+          0.0,
+          0.9999999403953552,
+          0.0,
+          1.0,
+          0.0
+        ],
+        "seen_mask": [
+          false,
+          false,
+          true,
+          false,
+          true,
+          false
+        ],
+        "state_finite": true,
+        "extra_floats": 390,
+        "revisit_old_train": false,
+        "old_samples_revisited": 0
+      },
+      "online_posthoc_alignment": {
+        "cosine_by_seen_class": [
+          0.9999998807907104,
+          1.0
+        ],
+        "mean_cosine": 0.9999999403953552
+      }
+    },
+    "1": {
+      "online_current_task": {
+        "samples_encoded": 16,
+        "runtime_sec": 0.083316,
+        "prototype_counts": [
+          8.0,
+          8.0,
+          8.0,
+          0.0,
+          8.0,
+          0.0
+        ],
+        "prototype_norms": [
+          1.0,
+          1.0,
+          0.9999999403953552,
+          0.0,
+          1.0,
+          0.0
+        ],
+        "seen_mask": [
+          true,
+          true,
+          true,
+          false,
+          true,
+          false
+        ],
+        "state_finite": true,
+        "extra_floats": 390,
+        "revisit_old_train": false
+      },
+      "posthoc_full_seen_train": {
+        "samples_encoded": 32,
+        "runtime_sec": 0.125034,
+        "prototype_counts": [
+          8.0,
+          8.0,
+          8.0,
+          0.0,
+          8.0,
+          0.0
+        ],
+        "prototype_norms": [
+          1.0,
+          1.0,
+          1.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        "seen_mask": [
+          true,
+          true,
+          true,
+          false,
+          true,
+          false
+        ],
+        "state_finite": true,
+        "extra_floats": 390,
+        "revisit_old_train": true,
+        "old_samples_revisited": 16
+      },
+      "online_posthoc_alignment": {
+        "cosine_by_seen_class": [
+          1.0,
+          1.0,
+          0.6360820531845093,
+          0.5684573650360107
+        ],
+        "mean_cosine": 0.8011348247528076
+      }
+    },
+    "2": {
+      "online_current_task": {
+        "samples_encoded": 16,
+        "runtime_sec": 0.102727,
+        "prototype_counts": [
+          8.0,
+          8.0,
+          8.0,
+          8.0,
+          8.0,
+          8.0
+        ],
+        "prototype_norms": [
+          1.0,
+          1.0,
+          0.9999999403953552,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "seen_mask": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "state_finite": true,
+        "extra_floats": 390,
+        "revisit_old_train": false
+      },
+      "posthoc_full_seen_train": {
+        "samples_encoded": 48,
+        "runtime_sec": 0.192519,
+        "prototype_counts": [
+          8.0,
+          8.0,
+          8.0,
+          8.0,
+          8.0,
+          8.0
+        ],
+        "prototype_norms": [
+          0.9999999403953552,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "seen_mask": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "state_finite": true,
+        "extra_floats": 390,
+        "revisit_old_train": true,
+        "old_samples_revisited": 32
+      },
+      "online_posthoc_alignment": {
+        "cosine_by_seen_class": [
+          0.6172902584075928,
+          0.6437183618545532,
+          0.4633159041404724,
+          1.0,
+          0.3472120463848114,
+          1.0
+        ],
+        "mean_cosine": 0.6785894632339478
+      }
+    }
+  },
+  "ncm_online_R": [
+    [
+      1.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      1.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "ncm_posthoc_R": [
+    [
+      1.0,
+      0.0,
+      0.0
+    ],
+    [
+      1.0,
+      1.0,
+      0.0
+    ],
+    [
+      1.0,
+      1.0,
+      1.0
+    ]
+  ]
+}

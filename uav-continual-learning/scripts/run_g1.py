@@ -16,6 +16,7 @@ Sau khi chạy >=2 method, gộp bảng so sánh:  python scripts/compare_g1.py
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import subprocess
@@ -68,6 +69,18 @@ def run_dir_name(cfg: dict, method_name: str) -> str:
         if not safe_protocol:
             raise ValueError("data.split_protocol phải chứa ít nhất một ký tự chữ hoặc số")
         name += f"_split{safe_protocol}"
+    train_cfg = cfg.get("train", {}) or {}
+    ncm_cfg = train_cfg.get("ncm") or {}
+    adaptation = {
+        "blend": ncm_cfg.get("blend"),
+        "transport": ncm_cfg.get("transport"),
+        "feature_distillation": train_cfg.get("feature_distillation"),
+    }
+    if any(value for value in adaptation.values()):
+        digest = hashlib.sha1(
+            json.dumps(adaptation, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()[:8]
+        name += f"_ncmadapt{digest}"
     return name
 
 
@@ -75,7 +88,48 @@ def result_is_complete(out: pathlib.Path, cfg: dict) -> bool:
     required = ("metrics.json", "config.yaml", "acc_matrix.csv", "train_log.json")
     if not all((out / name).exists() for name in required):
         return False
-    if bool(cfg.get("train", {}).get("eval_ncm_head", False)):
+    train_cfg = cfg.get("train", {})
+    ncm_cfg = train_cfg.get("ncm")
+    if isinstance(ncm_cfg, dict) and bool(ncm_cfg.get("enabled", True)):
+        readouts = ncm_cfg.get(
+            "readouts", ["online_current_task", "posthoc_full_seen_train"]
+        )
+        if isinstance(readouts, str):
+            readouts = [readouts]
+        expected = []
+        if "online_current_task" in readouts:
+            expected.extend(("metrics_ncm_online.json", "acc_matrix_ncm_online.csv"))
+            blend_cfg = ncm_cfg.get("blend", {}) or {}
+            if blend_cfg.get("enabled"):
+                from uavcl.models.ncm_adaptation import gamma_key
+
+                for gamma in blend_cfg.get("gammas", [1.0]):
+                    key = gamma_key(float(gamma))
+                    expected.extend(
+                        (
+                            f"metrics_ncm_blend_{key}.json",
+                            f"acc_matrix_ncm_blend_{key}.csv",
+                        )
+                    )
+            transport_cfg = ncm_cfg.get("transport", {}) or {}
+            for index, candidate in enumerate(transport_cfg.get("candidates", []) or []):
+                safe_name = "".join(
+                    char if char.isalnum() else "_"
+                    for char in str(candidate.get("name", f"candidate_{index}")).lower()
+                ).strip("_")
+                key = f"t{index}_{safe_name or 'candidate'}"
+                expected.extend(
+                    (
+                        f"metrics_ncm_transport_{key}.json",
+                        f"acc_matrix_ncm_transport_{key}.csv",
+                    )
+                )
+        if "posthoc_full_seen_train" in readouts:
+            expected.extend(("metrics_ncm_posthoc.json", "acc_matrix_ncm_posthoc.csv"))
+        if bool(ncm_cfg.get("save_state", True)):
+            expected.append("checkpoint.pt")
+        return all((out / name).exists() for name in expected)
+    if bool(train_cfg.get("eval_ncm_head", False)):
         return all((out / name).exists() for name in ("metrics_ncm.json", "acc_matrix_ncm.csv"))
     return True
 
@@ -177,6 +231,8 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     (out / "failure.json").unlink(missing_ok=True)
     save_config(cfg, out / "config.yaml")
+    progress_path = out / "progress_checkpoint.pt"
+    cfg["train"]["_progress_checkpoint_path"] = str(progress_path)
 
     # --- run ---
     cms_cfg = cfg.get("cms") or {}
@@ -237,8 +293,9 @@ def main() -> int:
         .to_csv(out / "acc_matrix.csv", float_format="%.4f")
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     serializable_log = dict(log)
-    if isinstance(serializable_log.get("ncm_R"), np.ndarray):
-        serializable_log["ncm_R"] = serializable_log["ncm_R"].tolist()
+    for key, value in list(serializable_log.items()):
+        if key.startswith("ncm_") and isinstance(value, np.ndarray):
+            serializable_log[key] = value.tolist()
     (out / "train_log.json").write_text(
         json.dumps(serializable_log, indent=2), encoding="utf-8"
     )
@@ -258,23 +315,137 @@ def main() -> int:
     print(f"  Average Forgetting : {metrics['average_forgetting']:.4f}  (thấp = tốt — con số dự án cần giảm)")
     print(f"  Backward Transfer  : {metrics['backward_transfer']:.4f}  (âm = quên)")
 
-    # ĐÒN A: nếu bật train.eval_ncm_head, log có ma trận NCM-head -> tính + lưu + so sánh.
+    def save_ncm_readout(matrix_key: str, readout: str, stem: str, revisit: bool) -> dict | None:
+        if matrix_key not in log:
+            return None
+        matrix = np.asarray(log[matrix_key])
+        protocol = dict(log.get("ncm_protocol", {}))
+        readout_metrics = {
+            "readout": readout,
+            "revisit_old_train": revisit,
+            "feature_protocol": protocol.get("feature_protocol"),
+            "prototype_loader": protocol.get("prototype_loader"),
+            "average_accuracy": average_accuracy(matrix),
+            "average_forgetting": average_forgetting(matrix),
+            "backward_transfer": backward_transfer(matrix),
+        }
+        pd.DataFrame(
+            matrix,
+            index=[f"after_task{i}" for i in range(len(stream))],
+            columns=cols,
+        ).to_csv(out / f"acc_matrix_{stem}.csv", float_format="%.4f")
+        (out / f"metrics_{stem}.json").write_text(
+            json.dumps(readout_metrics, indent=2), encoding="utf-8"
+        )
+        return readout_metrics
+
+    online_metrics = save_ncm_readout(
+        "ncm_online_R", "ncm_online_current_task", "ncm_online", False
+    )
+    blend_metrics = {}
+    from uavcl.models.ncm_adaptation import gamma_key
+
+    protocol_gammas = log.get("ncm_protocol", {}).get("blend_gammas", [])
+    for gamma in protocol_gammas:
+        key = gamma_key(float(gamma))
+        saved = save_ncm_readout(
+            f"ncm_blend_R_{key}",
+            f"ncm_online_blend_gamma_{float(gamma):g}",
+            f"ncm_blend_{key}",
+            False,
+        )
+        if saved is not None:
+            saved["gamma"] = float(gamma)
+            saved["transport"] = log.get("ncm_protocol", {}).get("transport")
+            (out / f"metrics_ncm_blend_{key}.json").write_text(
+                json.dumps(saved, indent=2), encoding="utf-8"
+            )
+            blend_metrics[key] = saved
+    transport_metrics = {}
+    transport_cfg = log.get("ncm_protocol", {}).get("transport", {}) or {}
+    for index, candidate in enumerate(transport_cfg.get("candidates", []) or []):
+        safe_name = "".join(
+            char if char.isalnum() else "_"
+            for char in str(candidate.get("name", f"candidate_{index}")).lower()
+        ).strip("_")
+        key = f"t{index}_{safe_name or 'candidate'}"
+        saved = save_ncm_readout(
+            f"ncm_transport_R_{key}",
+            f"ncm_transport_candidate_{key}",
+            f"ncm_transport_{key}",
+            False,
+        )
+        if saved is not None:
+            saved["candidate"] = candidate
+            saved["gamma"] = float(transport_cfg.get("screen_gamma", 1.0))
+            (out / f"metrics_ncm_transport_{key}.json").write_text(
+                json.dumps(saved, indent=2), encoding="utf-8"
+            )
+            transport_metrics[key] = saved
+    posthoc_metrics = save_ncm_readout(
+        "ncm_posthoc_R", "ncm_posthoc_full_seen_train", "ncm_posthoc", True
+    )
+
+    # Backward-compatible files for historical train.eval_ncm_head campaigns.
     if "ncm_R" in log:
         Rn = np.asarray(log["ncm_R"])
-        ncm_metrics = {
+        legacy_metrics = {
             "readout": "ncm_head_posthoc",
             "average_accuracy": average_accuracy(Rn),
             "average_forgetting": average_forgetting(Rn),
             "backward_transfer": backward_transfer(Rn),
         }
-        pd.DataFrame(Rn, index=[f"after_task{i}" for i in range(len(stream))], columns=cols) \
-            .to_csv(out / "acc_matrix_ncm.csv", float_format="%.4f")
-        (out / "metrics_ncm.json").write_text(json.dumps(ncm_metrics, indent=2), encoding="utf-8")
-        print("\n== ĐÒN A — NCM-head (prototype trên feature sau memory, KHÔNG train lại)")
-        print(f"  Linear-head : Acc {metrics['average_accuracy']:.4f} | Forget {metrics['average_forgetting']:.4f}")
-        print(f"  NCM-head    : Acc {ncm_metrics['average_accuracy']:.4f} | Forget {ncm_metrics['average_forgetting']:.4f}")
-        print(f"  Mốc NCM gốc : Acc 0.6933 | Forget 0.1000  (vượt được = head Linear là nút thắt)")
+        pd.DataFrame(
+            Rn,
+            index=[f"after_task{i}" for i in range(len(stream))],
+            columns=cols,
+        ).to_csv(out / "acc_matrix_ncm.csv", float_format="%.4f")
+        (out / "metrics_ncm.json").write_text(
+            json.dumps(legacy_metrics, indent=2), encoding="utf-8"
+        )
 
+    if online_metrics or posthoc_metrics:
+        print("\n== NCM feature readouts")
+        print(
+            f"  Linear              : Acc {metrics['average_accuracy']:.4f} | "
+            f"Forget {metrics['average_forgetting']:.4f}"
+        )
+        if online_metrics:
+            print(
+                f"  NCM online          : Acc {online_metrics['average_accuracy']:.4f} | "
+                f"Forget {online_metrics['average_forgetting']:.4f}"
+            )
+        if posthoc_metrics:
+            print(
+                f"  NCM post-hoc oracle : Acc {posthoc_metrics['average_accuracy']:.4f} | "
+                f"Forget {posthoc_metrics['average_forgetting']:.4f}"
+            )
+        for key, item in blend_metrics.items():
+            if key == gamma_key(1.0):
+                continue
+            print(
+                f"  NCM blend {item['gamma']:g}       : Acc {item['average_accuracy']:.4f} | "
+                f"Forget {item['average_forgetting']:.4f}"
+            )
+
+    configured_ncm = cfg.get("train", {}).get("ncm")
+    if (
+        isinstance(configured_ncm, dict)
+        and bool(configured_ncm.get("enabled", True))
+        and bool(configured_ncm.get("save_state", True))
+    ):
+        from uavcl.checkpoint import save_inference_checkpoint
+
+        save_inference_checkpoint(
+            out / "checkpoint.pt",
+            model,
+            config=cfg,
+            seen_classes=sorted({class_id for spec in stream for class_id in spec.classes}),
+            git_commit=metrics.get("git_commit"),
+        )
+        print("  checkpoint.pt đã lưu (model + Titans state + online NCM)")
+
+    progress_path.unlink(missing_ok=True)
     print(f"  Saved -> {out}")
     return 0
 

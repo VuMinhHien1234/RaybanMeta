@@ -1,0 +1,22 @@
+{
+  "dataset": "resisc45",
+  "method": "ncm",
+  "seed": 2,
+  "num_tasks": 9,
+  "backbone": "vit_small_patch16_224",
+  "optimizer": "adamw",
+  "lr": 0.0001,
+  "optimizer_per_task": true,
+  "average_accuracy": 0.7114285714285713,
+  "average_forgetting": 0.09214285714285718,
+  "backward_transfer": -0.09214285714285718,
+  "forward_transfer": null,
+  "trainable_params": 0,
+  "method_extra_floats": 17325,
+  "runtime_sec": 183.0,
+  "device": "cuda",
+  "torch_version": "2.9.1+cu129",
+  "cuda_device": "Tesla T4",
+  "git_commit": "9b7e496a5630901483c933d0f3023efda452b324",
+  "grad_clip_norm": null
+}

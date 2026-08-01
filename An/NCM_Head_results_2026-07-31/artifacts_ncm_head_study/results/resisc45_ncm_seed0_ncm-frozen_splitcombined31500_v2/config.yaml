@@ -1,0 +1,38 @@
+seed: 0
+device: auto
+data:
+  name: resisc45
+  hf_repo: timm/resisc45
+  root: ./data
+  num_tasks: 9
+  shuffle_classes: true
+  image_size: 224
+  batch_size: 32
+  num_workers: 2
+  split_protocol: combined31500_v2
+  expected_total_samples: 31500
+  expected_samples_per_class: 700
+  prototype_batch_size: 32
+backbone:
+  name: vit_small_patch16_224
+  pretrained: true
+  freeze: false
+train:
+  method: finetune
+  epochs_per_task: 3
+  lr: 0.0001
+  weight_decay: 0.01
+  eval_future: false
+ewc:
+  ewc_lambda: 1000.0
+  max_batches: 50
+replay:
+  buffer_per_class: 20
+  replay_batch: 32
+  weight: 1.0
+lwf:
+  lwf_lambda: 1.0
+  temperature: 2.0
+log:
+  dir: /home/an/RaybanMeta/uav-continual-learning/artifacts_ncm_head_study
+  run_tag: ncm-frozen

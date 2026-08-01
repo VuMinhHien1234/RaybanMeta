@@ -1,0 +1,9 @@
+{
+  "readout": "ncm_posthoc_full_seen_train",
+  "revisit_old_train": true,
+  "feature_protocol": "independent_image",
+  "prototype_loader": "prototype",
+  "average_accuracy": 0.7536507936507937,
+  "average_forgetting": 0.061785714285714305,
+  "backward_transfer": -0.06035714285714286
+}

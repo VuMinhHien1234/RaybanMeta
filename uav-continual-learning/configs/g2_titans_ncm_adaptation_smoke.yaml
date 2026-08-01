@@ -1,0 +1,79 @@
+seed: 0
+device: auto
+
+data:
+  name: synthetic
+  num_classes: 6
+  train_per_class: 8
+  val_per_class: 4
+  test_per_class: 4
+  split_seed: 0
+  num_tasks: 3
+  image_size: 32
+  batch_size: 8
+  eval_batch_size: 8
+  prototype_batch_size: 8
+  num_workers: 0
+
+backbone:
+  name: tinycnn
+  pretrained: false
+  freeze: true
+
+memory:
+  enabled: true
+  dim: auto
+  chunk_size: 8
+  seq: image_seq
+  reset: never
+  gated_transition: true
+  qk_rmsnorm: true
+  max_grad_norm: 1.0
+
+train:
+  method: titans
+  optimizer: adamw
+  epochs_per_task: 1
+  lr: 0.001
+  weight_decay: 0.0
+  grad_clip_norm: 1.0
+  optimizer_per_task: false
+  eval_future: false
+  eval_feature_protocol: independent_image
+  feature_distillation:
+    enabled: true
+    teacher: frozen_backbone
+    weight: 0.05
+    loss: cosine
+  ncm:
+    enabled: true
+    readouts: [online_current_task]
+    feature_protocol: independent_image
+    prototype_transform: eval
+    fail_on_nonfinite: true
+    save_state: true
+    blend:
+      enabled: true
+      gammas: [0.0, 0.5, 1.0]
+    transport:
+      enabled: true
+      type: identity_ridge
+      regularization: 1.0
+      beta: 0.5
+      safety_gate: true
+      min_improvement: 0.0
+      max_condition: 1000000.0
+      screen_gamma: 0.5
+      candidates:
+        - name: translation
+          type: translation
+          regularization: 0.0
+          beta: 1.0
+        - name: ridge
+          type: identity_ridge
+          regularization: 1.0
+          beta: 0.5
+
+log:
+  dir: ./artifacts_ncm_adaptation_smoke
+  run_tag: ncm-adaptation-smoke

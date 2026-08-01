@@ -16,9 +16,9 @@
 from .backbone import TinyCNN, build_backbone
 from .classifier import MASK_FILL, ContinualClassifier, mask_logits
 from .hope import HOPEClassifier
-from .ncm import NCMClassifier
+from .ncm import NCMClassifier, PrototypeHead
 from .seq_adapter import SeqAdapter
-from .titans_head import TitansClassifier
+from .titans_head import FeatureBundle, TitansClassifier, blend_features
 
 __all__ = [
     # ↳ Danh sách tên công khai của package models.
@@ -26,8 +26,11 @@ __all__ = [
     "build_backbone",      # ↳ Nhà máy dựng backbone.
     "ContinualClassifier", # ↳ Baseline backbone + head (G1).
     "NCMClassifier",       # ↳ Baseline NCM prototype (G1).
+    "PrototypeHead",       # ↳ Core NCM có state, dùng chung cho baseline/readout online.
     "SeqAdapter",          # ↳ Phiên dịch ảnh <-> chuỗi (G2).
     "TitansClassifier",    # ↳ Model có bộ nhớ Titans (G2).
+    "FeatureBundle",       # ↳ Feature ViT ổn định + feature Titans trong cùng forward.
+    "blend_features",      # ↳ Anchored blend dùng cho NCM no-replay.
     "HOPEClassifier",      # ↳ Titans + CMS hợp nhất (G4).
     "mask_logits",         # ↳ Hàm che class không được phép.
     "MASK_FILL",           # ↳ Giá trị dùng để che.

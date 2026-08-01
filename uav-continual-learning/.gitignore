@@ -12,6 +12,7 @@ dist/
 # KHÔNG bỏ qua package nguồn src/uavcl/data/ (bug cũ: "data/" trần nuốt nhầm cả source -> clone thiếu module).
 /data/
 artifacts/
+/artifacts_*/
 checkpoints/
 *.pth
 *.pt

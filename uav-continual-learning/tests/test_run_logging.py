@@ -92,6 +92,31 @@ def test_result_complete_requires_ncm_outputs_when_enabled(tmp_path):
     assert run_g1.result_is_complete(tmp_path, cfg)
 
 
+def test_result_complete_requires_named_ncm_outputs_and_checkpoint(tmp_path):
+    run_g1 = _run_module()
+    cfg = {
+        "train": {
+            "ncm": {
+                "enabled": True,
+                "readouts": ["online_current_task", "posthoc_full_seen_train"],
+                "save_state": True,
+            }
+        }
+    }
+    for name in ("metrics.json", "config.yaml", "acc_matrix.csv", "train_log.json"):
+        (tmp_path / name).write_text("{}", encoding="utf-8")
+    assert not run_g1.result_is_complete(tmp_path, cfg)
+    for name in (
+        "metrics_ncm_online.json",
+        "acc_matrix_ncm_online.csv",
+        "metrics_ncm_posthoc.json",
+        "acc_matrix_ncm_posthoc.csv",
+        "checkpoint.pt",
+    ):
+        (tmp_path / name).write_text("", encoding="utf-8")
+    assert run_g1.result_is_complete(tmp_path, cfg)
+
+
 def test_terminal_scientific_failure_only_accepts_floating_point(tmp_path):
     run_g1 = _run_module()
     failure_path = tmp_path / "failure.json"

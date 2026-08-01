@@ -1,0 +1,57 @@
+
+[2026-07-31 00:00:24] $ /usr/bin/python3 /home/an/RaybanMeta/uav-continual-learning/scripts/run_g1.py --config /home/an/RaybanMeta/uav-continual-learning/configs/g1_resisc45.yaml --method ncm --skip-existing --set seed=1 data.split_protocol=combined31500_v2 data.expected_total_samples=31500 data.expected_samples_per_class=700 data.prototype_batch_size=32 log.run_tag=ncm-frozen log.dir=/home/an/RaybanMeta/uav-continual-learning/artifacts_ncm_head_study
+== G1 run: dataset=resisc45 method=ncm seed=1 device=cuda
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+task 0: 5 classes [baseball_diamond, bridge, cloud, river, terrace] | train 2800 / val 350 / test 350
+task 1: 5 classes [dense_residential, desert, golf_course, medium_residential, mountain] | train 2800 / val 350 / test 350
+task 2: 5 classes [island, palace, railway, runway, snowberg] | train 2800 / val 350 / test 350
+task 3: 5 classes [commercial_area, harbor, lake, overpass, tennis_court] | train 2800 / val 350 / test 350
+task 4: 5 classes [basketball_court, freeway, industrial_area, storage_tank, wetland] | train 2800 / val 350 / test 350
+task 5: 5 classes [airplane, intersection, meadow, roundabout, sparse_residential] | train 2800 / val 350 / test 350
+task 6: 5 classes [airport, chaparral, sea_ice, stadium, thermal_power_station] | train 2800 / val 350 / test 350
+task 7: 5 classes [forest, mobile_home_park, parking_lot, railway_station, rectangular_farmland] | train 2800 / val 350 / test 350
+task 8: 5 classes [beach, church, circular_farmland, ground_track_field, ship] | train 2800 / val 350 / test 350
+[task 0] classes=[2, 5, 9, 32, 42] | train=2800
+[task 0] test acc so far: 0.854
+[checkpoint] đã lưu tiến độ sau task 0
+[task 1] classes=[11, 12, 15, 23, 25] | train=2800
+[task 1] test acc so far: 0.791  0.860
+[checkpoint] đã lưu tiến độ sau task 1
+[task 2] classes=[20, 27, 29, 34, 37] | train=2800
+[task 2] test acc so far: 0.757  0.837  0.869
+[checkpoint] đã lưu tiến độ sau task 2
+[task 3] classes=[10, 17, 21, 26, 41] | train=2800
+[task 3] test acc so far: 0.731  0.829  0.803  0.791
+[checkpoint] đã lưu tiến độ sau task 3
+[task 4] classes=[3, 14, 18, 40, 44] | train=2800
+[task 4] test acc so far: 0.726  0.814  0.771  0.711  0.731
+[checkpoint] đã lưu tiến độ sau task 4
+[task 5] classes=[0, 19, 22, 33, 38] | train=2800
+[task 5] test acc so far: 0.714  0.789  0.757  0.686  0.720  0.729
+[checkpoint] đã lưu tiến độ sau task 5
+[task 6] classes=[1, 6, 35, 39, 43] | train=2800
+[task 6] test acc so far: 0.711  0.789  0.743  0.680  0.703  0.723  0.851
+[checkpoint] đã lưu tiến độ sau task 6
+[task 7] classes=[13, 24, 28, 30, 31] | train=2800
+[task 7] test acc so far: 0.706  0.777  0.723  0.666  0.689  0.700  0.846  0.731
+[checkpoint] đã lưu tiến độ sau task 7
+[task 8] classes=[4, 7, 8, 16, 36] | train=2800
+[task 8] test acc so far: 0.686  0.774  0.694  0.646  0.686  0.691  0.829  0.729  0.669
+[checkpoint] đã lưu tiến độ sau task 8
+
+== Ma trận accuracy (hàng = sau khi học task i, cột = đánh giá task j)
+[[0.854 0.    0.    0.    0.    0.    0.    0.    0.   ]
+ [0.791 0.86  0.    0.    0.    0.    0.    0.    0.   ]
+ [0.757 0.837 0.869 0.    0.    0.    0.    0.    0.   ]
+ [0.731 0.829 0.803 0.791 0.    0.    0.    0.    0.   ]
+ [0.726 0.814 0.771 0.711 0.731 0.    0.    0.    0.   ]
+ [0.714 0.789 0.757 0.686 0.72  0.729 0.    0.    0.   ]
+ [0.711 0.789 0.743 0.68  0.703 0.723 0.851 0.    0.   ]
+ [0.706 0.777 0.723 0.666 0.689 0.7   0.846 0.731 0.   ]
+ [0.686 0.774 0.694 0.646 0.686 0.691 0.829 0.729 0.669]]
+
+== Kết quả
+  Average Accuracy   : 0.7114  (cao = tốt)
+  Average Forgetting : 0.0854  (thấp = tốt — con số dự án cần giảm)
+  Backward Transfer  : -0.0854  (âm = quên)
+  Saved -> /home/an/RaybanMeta/uav-continual-learning/artifacts_ncm_head_study/results/resisc45_ncm_seed1_ncm-frozen_splitcombined31500_v2

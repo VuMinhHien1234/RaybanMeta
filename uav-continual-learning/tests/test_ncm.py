@@ -10,7 +10,8 @@ from uavcl.data.loaders import build_task_loaders          # noqa: E402
 from uavcl.engine import run_continual                     # noqa: E402
 from uavcl.methods import build_method                     # noqa: E402
 from uavcl.metrics import average_forgetting               # noqa: E402
-from uavcl.models import NCMClassifier, build_backbone     # noqa: E402
+from uavcl.models import NCMClassifier, PrototypeHead, build_backbone  # noqa: E402
+from uavcl.models.classifier import MASK_FILL              # noqa: E402
 
 DATA_CFG = {
     "name": "synthetic", "num_classes": 4, "train_per_class": 16,
@@ -45,3 +46,62 @@ def test_ncm_no_forgetting_and_bounded():
     expected = source.num_classes * dim + source.num_classes
     assert method.footprint_floats(model) == expected
     assert np.isfinite(R).all()
+
+
+def test_prototype_head_matches_manual_class_means_and_masks_unseen():
+    head = PrototypeHead(feat_dim=2, num_classes=3)
+    feats = torch.tensor([[3.0, 0.0], [0.0, 2.0], [1.0, 0.0]])
+    labels = torch.tensor([0, 0, 1])
+    head.update(feats, labels)
+
+    expected = torch.tensor([[2.0**-0.5, 2.0**-0.5], [1.0, 0.0], [0.0, 0.0]])
+    assert torch.allclose(head.prototypes(), expected, atol=1e-6)
+    logits = head.logits(torch.tensor([[1.0, 0.0]]))
+    assert logits.shape == (1, 3)
+    assert logits[0, 2] == MASK_FILL
+    assert head.proto_count.tolist() == [2.0, 1.0, 0.0]
+
+
+def test_prototype_head_update_is_batch_partition_invariant():
+    torch.manual_seed(2)
+    feats = torch.randn(12, 5)
+    labels = torch.tensor([0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2])
+    whole = PrototypeHead(5, 3)
+    split = PrototypeHead(5, 3)
+    whole.update(feats, labels)
+    split.update(feats[:5], labels[:5])
+    split.update(feats[5:], labels[5:])
+    assert torch.allclose(whole.proto_sum, split.proto_sum, atol=1e-6)
+    assert torch.equal(whole.proto_count, split.proto_count)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        torch.tensor([[float("nan"), 0.0]]),
+        torch.tensor([[float("inf"), 0.0]]),
+    ],
+)
+def test_prototype_head_rejects_nonfinite_features(bad):
+    head = PrototypeHead(2, 2)
+    with pytest.raises(FloatingPointError, match="NaN/Inf"):
+        head.update(bad, torch.tensor([0]))
+
+
+def test_prototype_head_rejects_invalid_labels_and_empty_allowed():
+    head = PrototypeHead(2, 2)
+    with pytest.raises(ValueError, match="label"):
+        head.update(torch.ones(1, 2), torch.tensor([2]))
+    head.update(torch.ones(1, 2), torch.tensor([0]))
+    with pytest.raises(RuntimeError, match="chưa có prototype"):
+        head.logits(torch.ones(1, 2), allowed=[1])
+
+
+def test_prototype_head_state_dict_round_trip():
+    head = PrototypeHead(4, 3)
+    head.update(torch.randn(8, 4), torch.tensor([0, 1, 2, 0, 1, 2, 0, 1]))
+    restored = PrototypeHead(4, 3)
+    restored.load_state_dict(head.state_dict())
+    query = torch.randn(5, 4)
+    assert torch.equal(head.proto_count, restored.proto_count)
+    assert torch.allclose(head.logits(query), restored.logits(query))
