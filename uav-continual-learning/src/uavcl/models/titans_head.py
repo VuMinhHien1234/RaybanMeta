@@ -143,7 +143,13 @@ class TitansClassifier(nn.Module):
         """Feature SAU memory (vector h trước head) — (B, D). Dùng cho head Linear và cho
         NCM-head (đòn A): đọc chính feature đã-được-memory-làm-giàu bằng prototype thay vì Linear.
         Giữ NGUYÊN luật vòng đời state: train thì nối+ghi (detach); eval thì đọc BẢN SAO, không ghi."""
-        feats = self._extract(x)          # ↳ Bước 1: ảnh -> feature.
+        return self.features_from_extracted(self._extract(x))  # ↳ Bước 1: ảnh -> feature; phần sau tách riêng.
+
+    def features_from_extracted(self, feats: torch.Tensor) -> torch.Tensor:
+        """Đường SAU backbone: feature đã trích -> adapter -> memory -> post_norm (B, D).
+
+        Tách riêng (task #22, plans/TASKS_UAV_CL.md) để latent replay đưa feature CŨ đã lưu
+        đi lại qua memory+head mà không cần ảnh gốc. Luật vòng đời state giữ nguyên như features()."""
         seq = self.adapter(feats)  # (1, L, D)  ↳ Bước 2: feature -> chuỗi cho memory.
 
         if self.training and self.reset_mode in ("task", "never"):
@@ -164,6 +170,10 @@ class TitansClassifier(nn.Module):
     # -------------------------------------------------------------- forward
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.head(self.features(x))  # ↳ (B,D) feature sau memory -> (B, num_classes) logits.
+
+    def forward_from_feats(self, feats: torch.Tensor) -> torch.Tensor:
+        """Logits từ feature-sau-backbone đã lưu (latent replay #22): bỏ qua backbone."""
+        return self.head(self.features_from_extracted(feats))
 
     # ------------------------------------------------------- state lifecycle
     def reset_state(self) -> None:

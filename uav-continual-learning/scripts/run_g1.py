@@ -121,6 +121,14 @@ def main() -> int:
         from uavcl.models.ncm import NCMClassifier
 
         model = NCMClassifier(backbone, feat_dim, source.num_classes).to(device)
+    elif method_name == "slda":
+        # #21: SLDA trên backbone frozen. Nếu config đang bật memory (vd config g2), chạy với
+        # --set memory.enabled=false để rơi vào nhánh này (SLDA định nghĩa trên feature cố định).
+        from uavcl.models.slda import SLDAClassifier
+
+        slda_cfg = cfg.get("slda", {}) or {}
+        model = SLDAClassifier(backbone, feat_dim, source.num_classes,
+                               shrinkage=float(slda_cfg.get("shrinkage", 1e-4))).to(device)
     else:
         model = ContinualClassifier(backbone, feat_dim, source.num_classes, head=head_kind).to(device)
     method = build_method(method_name, cfg)

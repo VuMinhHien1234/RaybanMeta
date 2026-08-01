@@ -355,8 +355,94 @@ class NCM(FineTune):
         return int(model.extra_floats()) if hasattr(model, "extra_floats") else 0
 
 
+class SLDA(FineTune):
+    """#21 (plans/TASKS_UAV_CL.md) — Streaming LDA, gradient-free (models/slda.py).
+
+    Như NCM nhưng học thêm covariance chung của feature. Không đọc lại data cũ,
+    không lưu mẫu — chỉ tích luỹ thống kê (s_c, n_c, G). Baseline streaming chuẩn."""
+
+    name = "slda"
+    gradient_free = True  # ↳ Engine bỏ vòng train gradient, gọi fit_task.
+
+    @torch.no_grad()
+    def fit_task(self, model, loader, device) -> None:
+        if not hasattr(model, "update"):
+            raise TypeError("Method 'slda' cần model là SLDAClassifier (run_g1 tự chọn đúng).")
+        model.eval()
+        for x, y in loader:
+            feats = model.backbone(x.to(device))       # ↳ Feature backbone đóng băng.
+            model.update(feats, y.to(device))          # ↳ Streaming: mỗi mẫu thấy đúng 1 lần.
+
+    def footprint_floats(self, model) -> int:
+        return int(model.extra_floats()) if hasattr(model, "extra_floats") else 0
+
+
+class LatentReplay(TitansCL):
+    """#22 (plans/TASKS_UAV_CL.md) — replay bằng FEATURE-sau-backbone thay vì ảnh.
+
+    Backbone đóng băng -> feature cũ không bao giờ "ôi" -> chỉ cần lưu vector 384-d
+    (float16 ~ 0.75KB/mẫu, so với ảnh 224² ~ 300KB — rẻ ~400 lần). Mỗi bước train,
+    bốc batch latent cũ đi lại qua memory+head (model.forward_from_feats) + CE "ôn bài".
+    Kế thừa TitansCL để giữ nguyên vòng đời state + log norm(state) khi model là Titans;
+    với ContinualClassifier (G1) các hook đó tự thành no-op.
+    """
+
+    name = "latent_replay"
+
+    def __init__(self, buffer_per_class: int = 20, replay_batch: int = 32,
+                 weight: float = 1.0, seed: int = 0, **_):
+        self.buffer_per_class = int(buffer_per_class)
+        self.replay_batch = int(replay_batch)
+        self.weight = float(weight)
+        self._rng = random.Random(seed)
+        self._buf: List[Tuple[torch.Tensor, int]] = []  # (feature float16 CPU, nhãn)
+        self._seen: List[int] = []
+
+    @staticmethod
+    def _backbone_feats(model, x) -> torch.Tensor:
+        # Titans/HOPE có _extract (patch_seq/image_seq); ContinualClassifier dùng thẳng backbone.
+        return model._extract(x) if hasattr(model, "_extract") else model.backbone(x)
+
+    @torch.no_grad()
+    def end_task(self, model, loader, device, allowed: Sequence[int]) -> None:
+        super().end_task(model, loader, device, allowed)   # ↳ log norm(state)... của TitansCL.
+        was_training = model.training
+        model.eval()                                        # ↳ Trích feature không ghi state.
+        quota = {int(c): self.buffer_per_class for c in allowed}
+        for x, y in loader:
+            feats = self._backbone_feats(model, x.to(device))
+            for i in range(len(y)):
+                c = int(y[i])
+                if quota.get(c, 0) > 0:
+                    self._buf.append((feats[i].detach().to(torch.float16).cpu(), c))
+                    quota[c] -= 1
+            if all(v == 0 for v in quota.values()):
+                break
+        self._seen = sorted(set(self._seen) | {int(c) for c in allowed})
+        if was_training:
+            model.train()
+
+    def extra_batch_loss(self, model, x, logits_full, device) -> Optional[torch.Tensor]:
+        if not self._buf:
+            return None                                    # ↳ Task đầu: chưa có gì để ôn.
+        if not hasattr(model, "forward_from_feats"):
+            raise TypeError("latent_replay cần model có forward_from_feats "
+                            "(TitansClassifier/HOPEClassifier/ContinualClassifier).")
+        idx = [self._rng.randrange(len(self._buf))
+               for _ in range(min(self.replay_batch, len(self._buf)))]
+        zs = torch.stack([self._buf[i][0] for i in idx]).float().to(device)
+        ys = torch.tensor([self._buf[i][1] for i in idx], dtype=torch.long, device=device)
+        logits = mask_logits(model.forward_from_feats(zs), self._seen)
+        return self.weight * F.cross_entropy(logits, ys)
+
+    def footprint_floats(self, model) -> int:
+        base = super().footprint_floats(model)             # ↳ extra_floats của memory (nếu có).
+        return base + sum(z.numel() for z, _ in self._buf)
+
+
 _METHODS = {"finetune": FineTune, "ewc": EWC, "replay": Replay, "lwf": LwF,
-            "ncm": NCM, "titans": TitansCL, "cms": CMS, "hope": HOPE}
+            "ncm": NCM, "titans": TitansCL, "cms": CMS, "hope": HOPE,
+            "slda": SLDA, "latent_replay": LatentReplay}
 # ↳ "Sổ đăng ký" ánh xạ tên method (trong config) -> class tương ứng.
 
 

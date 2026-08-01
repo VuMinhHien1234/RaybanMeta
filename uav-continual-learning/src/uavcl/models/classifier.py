@@ -66,6 +66,10 @@ class ContinualClassifier(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.head(self.backbone(x))             # ↳ ảnh -> feature -> logits (B, num_classes).
 
+    def forward_from_feats(self, feats: torch.Tensor) -> torch.Tensor:
+        """Logits từ feature-sau-backbone đã lưu (latent replay #22): bỏ qua backbone."""
+        return self.head(feats)
+
 
 def mask_logits(logits: torch.Tensor, allowed: Sequence[int]) -> torch.Tensor:
     """Giữ nguyên cột trong `allowed`, đè các cột khác = MASK_FILL."""

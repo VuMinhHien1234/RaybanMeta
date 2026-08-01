@@ -8,6 +8,110 @@ phân tích. Gộp mọi bài học đã gặp (đường dẫn theo user, cú p
 
 ---
 
+## 🆕 CAMPAIGN HEAD MỚI 2026-08-01 — lấy kết quả về & so sánh
+
+Đang chạy trên 2 VM, nền **M3-clip** (`configs/g2_titans_resisc45_selfmod_m3_improved.yaml`):
+
+| VM | Zone | Chạy gì | Xong khi có |
+|---|---|---|---|
+| `uavcl-cos` | `us-east1-b` | head=cosine, seed 0-1-2 (kèm shadow NCM rebuild) | 3 metrics.json |
+| `uavcl-sdc` | `us-central1-a` | head=linear + NCM-head **SDC**, seed 0-1-2, rồi **rebuild** seed 0 | 4 metrics.json |
+
+### C1. Kiểm tra đã xong chưa (chạy trên Mac)
+```bash
+gcloud compute ssh uavcl-cos --zone=us-east1-b -- 'pgrep -af run_g1.py; ls /home/*/RaybanMeta/uav-continual-learning/artifacts_*/results/*/metrics.json 2>/dev/null | wc -l'
+gcloud compute ssh uavcl-sdc --zone=us-central1-a -- 'pgrep -af run_g1.py; ls /home/*/RaybanMeta/uav-continual-learning/artifacts_*/results/*/metrics.json 2>/dev/null | wc -l'
+```
+`pgrep` im lặng + đủ số metrics.json (3 và 4) = xong. Còn tiến trình = đang chạy, đợi tiếp.
+
+### C2. Đóng gói + kéo về Mac (mỗi VM một tarball, KHÁC TÊN kẻo đè)
+```bash
+# VM cosine
+gcloud compute ssh uavcl-cos --zone=us-east1-b -- 'sudo bash -c "shopt -s nullglob; D=\$(ls -d /home/*/RaybanMeta/uav-continual-learning 2>/dev/null | head -1); cd \$D && tar czf /tmp/res_cos.tgz artifacts_* *.log && chmod 644 /tmp/res_cos.tgz && echo GOI_XONG \$D"'
+gcloud compute scp uavcl-cos:/tmp/res_cos.tgz ~/Desktop/Raybanmeta/result_test/ --zone=us-east1-b
+
+# VM sdc
+gcloud compute ssh uavcl-sdc --zone=us-central1-a -- 'sudo bash -c "shopt -s nullglob; D=\$(ls -d /home/*/RaybanMeta/uav-continual-learning 2>/dev/null | head -1); cd \$D && tar czf /tmp/res_sdc.tgz artifacts_* *.log && chmod 644 /tmp/res_sdc.tgz && echo GOI_XONG \$D"'
+gcloud compute scp uavcl-sdc:/tmp/res_sdc.tgz ~/Desktop/Raybanmeta/result_test/ --zone=us-central1-a
+```
+Thấy `GOI_XONG /home/...` là gói thành công. (`Connection closed` sau đó là bình thường.)
+
+### C3. Giải nén tách thư mục (không đè nhau)
+```bash
+cd ~/Desktop/Raybanmeta/result_test
+mkdir -p from_cos from_sdc
+tar xzf res_cos.tgz -C from_cos
+tar xzf res_sdc.tgz -C from_sdc
+```
+
+### C4. In bảng so sánh
+```bash
+cd ~/Desktop/Raybanmeta
+python3 uav-continual-learning/scripts/compare_all.py result_test
+```
+
+### C5. Đọc kết quả — quy tắc cho campaign này
+- Trong mỗi run: `metrics.json` = head CHÍNH (cosine hoặc linear); `metrics_ncm.json` = shadow NCM
+  (SDC ở run `artifacts_sdc_*`, rebuild ở run `artifacts_cosine_*` và `artifacts_rebuild_s0`).
+- **Trần so sánh = `artifacts_rebuild_s0`** (NCM-head rebuild, có đọc lại data cũ).
+- Head mới **ĐẠT** nếu cosine hoặc SDC: **Acc ≥ 0.72 & Forget ≤ 0.10 trên CẢ 3 seed** và bám sát trần rebuild.
+- Chỉ ~0.61–0.64 → chưa bỏ được việc đọc data cũ → bước kế: thử prototype-transport
+  (`ncm_adaptation.py`, branch `NCM_Head`).
+- KHÔNG so thẳng với số của An (`An/NCM_Head_results_2026-07-31`) — split khác (`combined31500_v2`).
+- Sức khoẻ M3-clip: `norm(state)` trong log không được vọt >1e4 ở bất kỳ seed nào (kỳ vọng hết nổ).
+
+### C6. Xoá VM (kẻo tính tiền)
+```bash
+gcloud compute instances delete uavcl-cos --zone=us-east1-b
+gcloud compute instances delete uavcl-sdc --zone=us-central1-a
+```
+
+---
+
+## 🆕 CAMPAIGN BASELINE 2026-08-01 — VM 3: SLDA (#21) + latent replay (#22) + bench (#28)
+
+Code mới nằm ở `methods.py` (SLDA, LatentReplay), `models/slda.py`, `scripts/bench_edge.py`
+(chi tiết: `plans/TASKS_UAV_CL.md`). **Phải pytest xanh trên Mac + push trước khi tạo VM.**
+
+### B1. Tạo VM + cài env (y hệt Bước 1–4, tên khác)
+```bash
+gcloud compute instances create uavcl-base --zone=asia-east1-a --machine-type=e2-standard-8 \
+  --image-family=ubuntu-2204-lts --image-project=ubuntu-os-cloud --boot-disk-size=100GB
+gcloud compute ssh uavcl-base --zone=asia-east1-a
+# ... cài env như Bước 3, checkout memory_titan_task4_v2, pytest -q phải xanh ...
+```
+
+### B2. Bench chi phí (#28) — 2 phút, chạy trước
+```bash
+python scripts/bench_edge.py | tee bench_vm.log        # trên VM
+# (chạy thêm trên Mac: python scripts/bench_edge.py | tee bench_mac.log — được 2 cột số)
+```
+
+### B3. Campaign baseline (tuần tự, ~8–12h, trong tmux)
+```bash
+tmux new -s run && source .venv/bin/activate
+nohup bash -c 'for s in 0 1 2; do \
+  .venv/bin/python scripts/run_g1.py --config configs/g2_titans_resisc45_selfmod_m3_improved.yaml \
+    --method slda --set seed=$s memory.enabled=false log.dir=./artifacts_slda_s$s \
+    > run_slda_s$s.log 2>&1 ; done ; \
+for s in 0 1 2; do \
+  .venv/bin/python scripts/run_g1.py --config configs/g2_titans_resisc45_selfmod_m3_improved.yaml \
+    --method latent_replay --set seed=$s train.eval_ncm_head=true log.dir=./artifacts_latreplay_s$s \
+    > run_latreplay_s$s.log 2>&1 ; done' > campaign.log 2>&1 &
+```
+- SLDA: gradient-free, RẤT nhanh (~10–20 phút/run, chỉ trích feature 1 lượt + eval).
+- latent_replay: chạy trên Titans + M3-clip như campaign head (WARN "thường dùng --method titans"
+  là bình thường — latent_replay kế thừa vòng đời titans).
+- Xong khi: 6 metrics.json (3 slda + 3 latreplay).
+
+### B4. Kéo về + đọc
+Đóng gói/kéo về y hệt C2 (tarball `res_base.tgz`, giải nén `from_base`). Đọc:
+- SLDA = mốc "streaming rẻ nhất": nếu head mới (cosine/SDC) không vượt SLDA → chưa có gì để khoe.
+- latent_replay so với replay ảnh 0.7937 và với rebuild ~0.74–0.75: kỳ vọng nằm giữa;
+  `method_extra_floats` trong metrics.json cho thấy buffer nhẹ hơn replay ảnh ~400 lần.
+
+---
+
 ## Bước 0 — (trên Mac) push code mới nhất lên GitHub
 
 VM sẽ `git clone`, nên mọi commit phải nằm trên GitHub trước. Nếu commit trong sandbox bị kẹt lock,
