@@ -48,8 +48,9 @@ def test_streaming_equals_batch():
     for i in range(0, len(y), 32):                    # streaming từng batch 32
         m2.update(x[i:i + 32], y[i:i + 32])
     m1._refresh_cache(); m2._refresh_cache()
-    assert torch.allclose(m1._cache_w, m2._cache_w, atol=1e-4)
-    assert torch.allclose(m1._cache_b, m2._cache_b, atol=1e-4)
+    # thống kê tích luỹ bằng float64 -> streaming và batch phải khớp rất chặt
+    assert torch.allclose(m1._cache_w, m2._cache_w, rtol=1e-5, atol=1e-5)
+    assert torch.allclose(m1._cache_b, m2._cache_b, rtol=1e-5, atol=1e-5)
 
 
 def test_unseen_class_masked():

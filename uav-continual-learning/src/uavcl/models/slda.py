@@ -37,9 +37,11 @@ class SLDAClassifier(nn.Module):
         self.backbone.eval()
         self.shrinkage = float(shrinkage)
         # buffer: đi theo state_dict/device, KHÔNG bị optimizer đụng vào.
-        self.register_buffer("feat_sum", torch.zeros(num_classes, feat_dim))   # s_c
-        self.register_buffer("count", torch.zeros(num_classes))                # n_c
-        self.register_buffer("gram", torch.zeros(feat_dim, feat_dim))          # G = Σ f fᵀ
+        # float64: cộng dồn hàng chục nghìn mẫu rồi NGHỊCH ĐẢO ma trận — float32 lệch
+        # theo thứ tự cộng (streaming ≠ batch tới 1e-3); double thì khớp và ổn định số.
+        self.register_buffer("feat_sum", torch.zeros(num_classes, feat_dim, dtype=torch.float64))  # s_c
+        self.register_buffer("count", torch.zeros(num_classes, dtype=torch.float64))               # n_c
+        self.register_buffer("gram", torch.zeros(feat_dim, feat_dim, dtype=torch.float64))         # G = Σ f fᵀ
         self._cache_w = None       # (D, C) = Λ μ_cᵀ — cache để không nghịch đảo mỗi batch
         self._cache_b = None       # (C,)   = −½ μ_c Λ μ_c
         self._cache_version = -1   # bump theo _version mỗi lần update
@@ -54,12 +56,12 @@ class SLDAClassifier(nn.Module):
     @torch.no_grad()
     def update(self, feats: torch.Tensor, ys: torch.Tensor) -> None:
         """Hấp thụ 1 batch (streaming): cộng dồn s_c, n_c, G. Không giữ lại mẫu."""
-        f = feats.detach().float()
+        f = feats.detach().double()
         if not torch.isfinite(f).all():
             raise FloatingPointError("SLDA nhận feature chứa NaN/Inf")
         self.feat_sum.index_add_(0, ys, f)
-        self.count.index_add_(0, ys, torch.ones_like(ys, dtype=torch.float))
-        self.gram.add_(f.t() @ f)            # ↳ Σ f fᵀ cộng dồn theo batch (D×D).
+        self.count.index_add_(0, ys, torch.ones_like(ys, dtype=torch.float64))
+        self.gram.add_(f.t() @ f)            # ↳ Σ f fᵀ cộng dồn theo batch (D×D, double).
         self._version += 1
 
     @torch.no_grad()
@@ -74,14 +76,15 @@ class SLDAClassifier(nn.Module):
         between = (self.count.unsqueeze(1) * mu).t() @ mu                       # Σ n_c μ μᵀ (D×D)
         sigma = (self.gram - between) / max(n_total, 1.0)
         sigma = 0.5 * (sigma + sigma.t())                                       # ↳ ép đối xứng (sai số float)
-        lam = torch.linalg.inv(sigma + self.shrinkage * torch.eye(d, device=sigma.device))
+        eye = torch.eye(d, dtype=sigma.dtype, device=sigma.device)
+        lam = torch.linalg.inv(sigma + self.shrinkage * eye)
         w = lam @ mu.t()                                                        # (D, C) = Λ μᵀ
         b = -0.5 * (mu * (mu @ lam)).sum(dim=1)                                 # (C,)
         # class chưa có mẫu: score = 0 mọi nơi -> mask_logits sẽ che, không ảnh hưởng.
         empty = self.count < 1.0
         w[:, empty] = 0.0
         b[empty] = 0.0
-        self._cache_w, self._cache_b = w, b
+        self._cache_w, self._cache_b = w.float(), b.float()                     # ↳ về float32 cho forward.
         self._cache_version = self._version
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

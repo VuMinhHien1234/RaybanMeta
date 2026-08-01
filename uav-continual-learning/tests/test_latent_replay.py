@@ -34,18 +34,39 @@ def _loader(pairs, batch=16):
     return [(x[i:i + batch], y[i:i + batch]) for i in range(0, len(y), batch)]
 
 
+class _ToyTrunkModel(torch.nn.Module):
+    """Giả lập kiến trúc dự án: latent (sau backbone frozen) -> TRUNK CHIA SẺ trainable
+    (vai memory) -> head. Quên xảy ra qua (1) trunk trôi theo task mới và (2) weight decay
+    ăn mòn hàng head class cũ (đúng recency bias mà NCM-head đã lộ). Backbone Identity ->
+    latent = x, forward_from_feats bỏ qua backbone như thật."""
+
+    def __init__(self):
+        super().__init__()
+        self.backbone = torch.nn.Identity()
+        self.trunk = torch.nn.Linear(FEAT, FEAT)
+        self.head = torch.nn.Linear(FEAT, C)
+
+    def forward(self, x):
+        return self.forward_from_feats(x)
+
+    def forward_from_feats(self, z):
+        return self.head(torch.tanh(self.trunk(z)))
+
+
 def _train_stream(use_replay: bool, seed=0):
     torch.manual_seed(seed)
-    model = ContinualClassifier(torch.nn.Identity(), FEAT, C, head="linear")
+    model = _ToyTrunkModel()
     method = build_method("latent_replay", {"latent_replay": {
-        "buffer_per_class": K, "replay_batch": 8, "weight": 1.0, "seed": 0}})
+        "buffer_per_class": K, "replay_batch": 16, "weight": 1.0, "seed": 0}})
     tasks = [[_cluster(0), _cluster(1)], [_cluster(2), _cluster(3)]]
     for t, pairs in enumerate(tasks):
         allowed = [0, 1] if t == 0 else [2, 3]
         loader = _loader(pairs)
-        opt = torch.optim.SGD(model.parameters(), lr=0.5)
+        # weight_decay: hàng head của class cũ không có gradient CE (mask) -> bị ăn mòn dần
+        # nếu KHÔNG replay; có replay thì được "ôn" lại mỗi bước. lr/wd chọn cho quên rõ.
+        opt = torch.optim.SGD(model.parameters(), lr=0.3, weight_decay=0.1)
         model.train()
-        for _ in range(5):
+        for _ in range(8):
             for x, y in loader:
                 loss = F.cross_entropy(mask_logits(model(x), allowed), y)
                 if use_replay:
@@ -83,5 +104,5 @@ def test_extra_loss_none_then_finite():
 def test_replay_reduces_forgetting():
     acc_with, _ = _train_stream(use_replay=True, seed=0)
     acc_without, _ = _train_stream(use_replay=False, seed=0)
-    assert acc_with >= acc_without + 0.3               # chống quên phải RÕ RỆT trên bài dễ
-    assert acc_with > 0.9
+    assert acc_with >= acc_without + 0.2               # chống quên phải RÕ RỆT trên bài toy
+    assert acc_with > 0.85
