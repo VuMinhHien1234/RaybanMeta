@@ -28,6 +28,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
+from .classifier import build_head
 from .memory import TitansMemory
 from .seq_adapter import SeqAdapter
 from .state_utils import clone_state, count_floats, detach_state, state_norm, state_to_cpu
@@ -67,7 +68,8 @@ def _stability_kwargs(memory_cfg: dict) -> dict:
 
 
 class TitansClassifier(nn.Module):
-    def __init__(self, backbone: nn.Module, feat_dim: int, num_classes: int, memory_cfg: dict):
+    def __init__(self, backbone: nn.Module, feat_dim: int, num_classes: int, memory_cfg: dict,
+                 head: str = "linear"):
         super().__init__()
         self.backbone = backbone
         for p in self.backbone.parameters():  # G2: backbone LUÔN đóng băng (quyết định đã chốt)
@@ -110,7 +112,7 @@ class TitansClassifier(nn.Module):
             self_modifying_readpath=self_mod_rp, **stab_kwargs  # ↳ self-mod bao trùm self-ref.
         )
         self.post_norm = nn.LayerNorm(dim)  # luật C2: ổn định số sau memory  ↳ Chuẩn hoá đầu ra memory.
-        self.head = nn.Linear(dim, num_classes)      # ↳ Lớp tuyến tính -> điểm số (logit) cho từng class.
+        self.head = build_head(head, dim, num_classes)  # ↳ linear (mặc định) | cosine (chống recency bias).
         self._state = None  # "cục ký ức" hiện tại của stream  ↳ Bắt đầu chưa có ký ức.
 
     # ---- giữ backbone ở eval kể cả khi model.train() (như NCMClassifier) ----

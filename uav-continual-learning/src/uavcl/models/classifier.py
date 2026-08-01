@@ -16,16 +16,52 @@ from typing import Sequence
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F  # ↳ dùng cho chuẩn hoá (đầu cosine).
 
 MASK_FILL = -1.0e4  # đủ nhỏ cho fp16/fp32 mà không sinh NaN như -inf
 # ↳ Giá trị "che": rất thấp nên sau softmax ~0, nhưng KHÔNG dùng -inf (dễ tạo NaN).
 
 
+class CosineHead(nn.Module):
+    """Đầu phân loại COSINE (LUCIR-style): chuẩn hoá feature + trọng số trước khi nhân
+    -> logit chỉ phụ thuộc HƯỚNG, bất biến ĐỘ LỚN. Nhờ vậy tránh 'recency bias' của đầu
+    Linear (độ lớn trọng số class mới phình to lấn class cũ = nguyên nhân forgetting mà
+    NCM-head đã lộ ra: Titans RESISC45 seed0 Linear 0.583/F0.274 -> NCM 0.758/F0.078).
+    `scale` học được giữ logit đủ 'sắc' cho cross-entropy (~16 chuẩn).
+
+    Đây là cách BIẾN phát hiện của NCM-head thành fix cố định trong model: 'prototype' giờ
+    chính là vector trọng số, được gradient cập nhật -> KHÔNG cần dựng prototype / đọc lại
+    data cũ / readout riêng. Giao diện y hệt nn.Linear (out_features/in_features) nên
+    mask_logits, NCM-head, metrics dùng chung không đổi."""
+
+    def __init__(self, feat_dim: int, num_classes: int, scale: float = 16.0):
+        super().__init__()
+        self.weight = nn.Parameter(torch.randn(num_classes, feat_dim) * 0.01)  # ↳ 'prototype' học được.
+        self.scale = nn.Parameter(torch.tensor(float(scale)))                  # ↳ nhiệt độ học được.
+        self.out_features = int(num_classes)  # ↳ để mask_logits / NCM-head đọc như nn.Linear.
+        self.in_features = int(feat_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        xn = F.normalize(x, dim=1)                 # ↳ feature -> vector đơn vị.
+        wn = F.normalize(self.weight, dim=1)       # ↳ trọng số class -> vector đơn vị.
+        return self.scale * (xn @ wn.t())          # ↳ cosine × scale -> logits (B, num_classes).
+
+
+def build_head(kind: str, feat_dim: int, num_classes: int, scale: float = 16.0) -> nn.Module:
+    """Nhà máy chọn đầu phân loại: 'linear' (mặc định, nn.Linear) | 'cosine' (CosineHead)."""
+    kind = (kind or "linear").lower()
+    if kind == "linear":
+        return nn.Linear(feat_dim, num_classes)
+    if kind == "cosine":
+        return CosineHead(feat_dim, num_classes, scale=scale)
+    raise ValueError(f"head '{kind}' không hợp lệ, chọn 'linear' | 'cosine'")
+
+
 class ContinualClassifier(nn.Module):
-    def __init__(self, backbone: nn.Module, feat_dim: int, num_classes: int):
+    def __init__(self, backbone: nn.Module, feat_dim: int, num_classes: int, head: str = "linear"):
         super().__init__()
         self.backbone = backbone                       # ↳ Con mắt.
-        self.head = nn.Linear(feat_dim, num_classes)   # ↳ Head: feature -> điểm số từng class.
+        self.head = build_head(head, feat_dim, num_classes)  # ↳ linear (mặc định) | cosine (chống recency bias).
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.head(self.backbone(x))             # ↳ ảnh -> feature -> logits (B, num_classes).

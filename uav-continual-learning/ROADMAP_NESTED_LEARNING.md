@@ -9,9 +9,35 @@ của paper, theo cái thang Eq 76 → 79 → 82. Mỗi bậc là 1 task độc 
 
 ---
 
-## 📊 TRẠNG THÁI HIỆN TẠI (cập nhật 2026-07-24)
+## 📊 TRẠNG THÁI HIỆN TẠI (cập nhật 2026-08-01)
 
-### ✅ Đã làm được
+### 🆕 CẬP NHẬT 2026-08-01 — đã cài "bản đầy đủ của ĐÒN A" (CosineHead) + NCM-head rẻ (SDC)
+
+**Đã CÀI (⚠️ chưa chạy — cần `pytest` + đo trên VM trước khi tin số):**
+
+- **`CosineHead` (`src/uavcl/models/classifier.py`)** — chính là **"bản ĐẦY ĐỦ của ĐÒN A"** mà roadmap 07-24
+  hẹn viết: thay head Linear bằng readout kiểu prototype, nhưng **train end-to-end**. Chuẩn hoá feature + trọng số
+  → logit **bất biến độ lớn (scale-invariant)** → *đúng* tính chất roadmap kỳ vọng giúp readout bền qua vụ nổ
+  norm(state) của seed 1. Hơn prototype post-hoc ở chỗ: **không dựng prototype, không đọc lại data cũ, không
+  readout riêng** — "prototype" là chính vector trọng số, được gradient cập nhật. Bật qua cờ config
+  `head: linear|cosine` (mặc định `linear` → run cũ bất biến); áp cho cả G1/Titans/HOPE. Test: `tests/test_cosine_head.py`.
+- **SDC cho NCM-head (`engine.py`, cờ `train.ncm_head_mode: rebuild|sdc`)** — NCM-head chẩn đoán cũ phải **quét
+  lại toàn bộ data cũ mỗi task** (đắt). SDC (Semantic Drift Compensation) bù trôi prototype **chỉ bằng data task
+  hiện tại** → **không đọc lại data cũ**. Dùng khi vẫn muốn giữ NCM-head làm readout post-hoc. Test: `tests/test_sdc_ncm_head.py`.
+
+**Vì sao quan trọng:** roadmap 07-24 ghi "việc tiếp: thay hẳn head Linear bằng prototype readout, chạy đa seed để
+chốt". `CosineHead` **chính là bản đó** — ở dạng train được + rẻ + scale-invariant → **ứng viên chốt số 1** hiện tại.
+
+**3 việc cần làm ngay (chi tiết từng bước: `plans/TASKS_KHAC_PHUC.md`):**
+1. **[CHẶN] Verify:** `pytest -q` phải xanh (kể cả 2 test mới) + smoke HOPE đọc norm(state). Chưa xanh → chưa tin số nào.
+2. **Đo CosineHead qua ≥3 seed** trên `g2_titans_resisc45_selfmod.yaml`: `--set head=linear log.dir=./artifacts_linear`
+   vs `--set head=cosine log.dir=./artifacts_cosine` (nhớ tách `log.dir`!). Câu hỏi chốt: cosine head có (a) tiến gần
+   NCM-head **0.758**, và (b) **BỀN qua seed** (không sập như selfmod v2 seed 1) không?
+3. **Quyết:** cosine head bền + đạt mốc (Acc≥0.72, Forget≤0.1 *robust*) → **CHỐT làm bản chính**; self-modifying value
+   (Task 4/§8.1) và "dây xích norm" hạ xuống ưu tiên thấp (đã né vụ nổ bằng scale-invariance). Song song sửa baseline
+   EWC/LwF (#15/#16) để so sánh công bằng.
+
+### ✅ Đã làm được (tính tới 2026-07-24)
 - **Task 1–4 (cơ chế) xong**: deep memory (Bậc 1), η/α data-dependent (Eq 76), self-referential
   projection (Task 3, context-gated), **self-modifying value (Task 4)** — đều chạy được trên RESISC45 9-task.
 - **Đòn A (NCM-head) đã cài + đo**: thay head Linear bằng prototype readout trên feature-sau-memory (test rẻ, không train lại).
@@ -148,8 +174,10 @@ của paper, theo cái thang Eq 76 → 79 → 82. Mỗi bậc là 1 task độc 
 - **🔄 ĐANG CHẠY — NCM-head trên seed 1:** kiểm NCM-head (cosine trên feature *chuẩn hóa* = scale-invariant) có
   BỀN qua vụ nổ norm của seed 1 không. Bền (~0.75) → **NCM-head một mình đủ, khỏi cần dây xích** (né luôn vụ ổn định).
   Không → nổ làm loạn *hướng* feature → cần **NCM-head + dây xích norm**.
-- **Việc tiếp (nếu seed 1 xác nhận):** viết bản ĐẦY ĐỦ — **thay hẳn head Linear bằng prototype readout** (NCM cố định),
-  chạy đa seed để chốt. Đây là ứng viên số 1 đưa kết quả vượt NCM một cách *robust*.
+- **Việc tiếp (nếu seed 1 xác nhận):** bản ĐẦY ĐỦ **ĐÃ CÀI 2026-08-01 = `CosineHead`** (train được, scale-invariant,
+  KHÔNG cần prototype/đọc lại data — xem mục "🆕 CẬP NHẬT 2026-08-01" ở đầu file). Việc còn lại: **chạy đa seed để chốt**
+  (`--set head=cosine`) — ứng viên số 1 vượt NCM một cách *robust*. Bản post-hoc (prototype readout cố định) chỉ cần
+  nếu muốn tránh train lại — khi đó dùng NCM-head `ncm_head_mode=sdc` cho rẻ.
 
 ### ĐÒN B — tín hiệu M giàu hơn nữa (trục đã chứng minh thống trị)
 - **Ý:** thay/bổ sung summary 24-chiều bằng biểu diễn M mạnh hơn: (i) đọc **nội dung ký ức truy hồi thật**

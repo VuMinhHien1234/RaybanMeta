@@ -99,20 +99,21 @@ def main() -> int:
 
     # --- model + method ---
     backbone, feat_dim = build_backbone(cfg["backbone"])
+    head_kind = str(cfg.get("head", "linear")).lower()  # ↳ 'linear' (mặc định) | 'cosine' (fix recency bias của head)
     mem_cfg = cfg.get("memory", {}) or {}
     cms_on = bool((cfg.get("cms") or {}).get("enabled", False))
     if mem_cfg.get("enabled", False) and cms_on:
         # G4 — HOPE: Titans (tầng nhanh) + backbone-CMS (tầng trung/chậm)
         from uavcl.models.hope import HOPEClassifier
 
-        model = HOPEClassifier(backbone, feat_dim, source.num_classes, mem_cfg).to(device)
+        model = HOPEClassifier(backbone, feat_dim, source.num_classes, mem_cfg, head=head_kind).to(device)
         if method_name != "hope":
             print(f"[WARN] memory+cms cùng bật + method '{method_name}' — thường dùng --method hope")
         print(f"[hope] seq={model.seq_mode} reset={model.reset_mode} chunk={model.memory.chunk_size}")
     elif mem_cfg.get("enabled", False):
         from uavcl.models.titans_head import TitansClassifier
 
-        model = TitansClassifier(backbone, feat_dim, source.num_classes, mem_cfg).to(device)
+        model = TitansClassifier(backbone, feat_dim, source.num_classes, mem_cfg, head=head_kind).to(device)
         if method_name not in ("titans", "finetune"):
             print(f"[WARN] memory.enabled + method '{method_name}' — thường dùng --method titans")
         print(f"[titans] seq={model.seq_mode} reset={model.reset_mode} chunk={model.memory.chunk_size}")
@@ -121,7 +122,7 @@ def main() -> int:
 
         model = NCMClassifier(backbone, feat_dim, source.num_classes).to(device)
     else:
-        model = ContinualClassifier(backbone, feat_dim, source.num_classes).to(device)
+        model = ContinualClassifier(backbone, feat_dim, source.num_classes, head=head_kind).to(device)
     method = build_method(method_name, cfg)
 
     # --- run ---
@@ -137,6 +138,7 @@ def main() -> int:
         "seed": seed,
         "num_tasks": len(stream),
         "backbone": cfg["backbone"]["name"],
+        "head": head_kind,
         "optimizer": str(cfg["train"].get("optimizer", "adamw")).lower(),
         "optimizer_per_task": bool(cfg["train"].get("optimizer_per_task", True)),
         "average_accuracy": average_accuracy(R),

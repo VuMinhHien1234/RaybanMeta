@@ -14,7 +14,7 @@
 #   liệt kê từng file làm gì theo mốc G1..G4), vừa gom các class model ra ngoài để
 #   import gọn: `from uavcl.models import HOPEClassifier`.
 from .backbone import TinyCNN, build_backbone
-from .classifier import MASK_FILL, ContinualClassifier, mask_logits
+from .classifier import MASK_FILL, ContinualClassifier, CosineHead, build_head, mask_logits
 from .hope import HOPEClassifier
 from .ncm import NCMClassifier
 from .seq_adapter import SeqAdapter
@@ -25,6 +25,8 @@ __all__ = [
     "TinyCNN",             # ↳ CNN tí hon cho smoke test.
     "build_backbone",      # ↳ Nhà máy dựng backbone.
     "ContinualClassifier", # ↳ Baseline backbone + head (G1).
+    "CosineHead",          # ↳ Đầu cosine chống recency bias (fix nút thắt head).
+    "build_head",          # ↳ Nhà máy chọn head linear|cosine.
     "NCMClassifier",       # ↳ Baseline NCM prototype (G1).
     "SeqAdapter",          # ↳ Phiên dịch ảnh <-> chuỗi (G2).
     "TitansClassifier",    # ↳ Model có bộ nhớ Titans (G2).

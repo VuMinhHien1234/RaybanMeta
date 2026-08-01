@@ -28,8 +28,9 @@ from .titans_head import TitansClassifier  # ↳ Kế thừa toàn bộ cơ ch�
 
 
 class HOPEClassifier(TitansClassifier):  # ↳ "(TitansClassifier)" = thừa hưởng mọi thứ của lớp cha.
-    def __init__(self, backbone: nn.Module, feat_dim: int, num_classes: int, memory_cfg: dict):
-        super().__init__(backbone, feat_dim, num_classes, memory_cfg)  # ↳ Dựng y hệt G2 trước (kể cả đóng băng backbone).
+    def __init__(self, backbone: nn.Module, feat_dim: int, num_classes: int, memory_cfg: dict,
+                 head: str = "linear"):
+        super().__init__(backbone, feat_dim, num_classes, memory_cfg, head=head)  # ↳ Dựng y hệt G2 trước (kể cả đóng băng backbone).
         # MỞ BĂNG backbone (TitansClassifier vừa đóng) — CMS sẽ đóng lại phần nền
         # (patch_embed/pos_embed/...) và điều tiết phần còn lại theo tier.
         for p in self.backbone.parameters():

@@ -14,6 +14,8 @@ Trả về ma trận R -> uavcl.metrics tính average_accuracy / forgetting / BW
 #   Từ R tính được: học tốt không (đường chéo), quên bao nhiêu (cột cũ tụt sau này).
 from __future__ import annotations
 
+import copy  # ↳ deepcopy model làm "mốc đo trôi" cho SDC (giống teacher của LwF).
+
 from typing import Dict, List, Sequence
 
 import numpy as np
@@ -87,6 +89,58 @@ def _evaluate_ncm(model, loader, device, allowed: Sequence[int], prototypes) -> 
     return correct / max(total, 1)
 
 
+# ---- SDC (Semantic Drift Compensation) cho NCM-head: KHÔNG đọc lại data cũ ----
+# Thay vì dựng lại prototype từ MỌI task đã thấy (rebuild), SDC giữ prototype BỀN và:
+#   (1) dịch prototype class CŨ theo độ trôi feature — đo CHỈ trên data task hiện tại;
+#   (2) thêm prototype cho class MỚI (một lần).
+# -> chi phí: 1 lượt data task hiện tại; lưu trữ: C×D + 1 model cũ tạm thời ở ranh giới.
+@torch.no_grad()
+def _sdc_shift(proto, old_model, new_model, loader, device, seen_before, sigma: float = 0.5):
+    """Dịch prototype class CŨ theo trôi feature, CHỈ dùng data task hiện tại (in-place).
+
+    δ = feature(model mới) − feature(model cũ) trên mẫu task hiện tại; prototype class c
+    dịch theo trung bình δ có trọng số Gaussian theo khoảng cách mẫu → prototype c."""
+    if not seen_before:
+        return proto                                   # ↳ Chưa có class cũ -> khỏi dịch.
+    old_model.eval(); new_model.eval()
+    fo_list, d_list = [], []
+    for x, _ in loader:                                # ↳ CHỈ duyệt data task hiện tại (không đụng task cũ).
+        x = x.to(device)
+        fo = F.normalize(old_model.features(x).float(), dim=1)   # ↳ feature theo model CŨ.
+        fn = F.normalize(new_model.features(x).float(), dim=1)   # ↳ feature theo model MỚI.
+        fo_list.append(fo); d_list.append(fn - fo)               # ↳ δ = độ trôi.
+    fo = torch.cat(fo_list); dl = torch.cat(d_list)             # (M, D)
+    two_s2 = 2.0 * sigma * sigma
+    for c in seen_before:                              # ↳ Chỉ dịch prototype class CŨ.
+        p = proto[c]
+        w = torch.exp(-((fo - p) ** 2).sum(dim=1) / two_s2)     # ↳ mẫu gần prototype cũ -> trọng số lớn.
+        denom = w.sum()
+        if float(denom) < 1e-8:
+            continue                                   # ↳ không mẫu nào gần -> để prototype nguyên.
+        drift = (w.unsqueeze(1) * dl).sum(dim=0) / denom        # ↳ trôi ước lượng cho prototype này.
+        proto[c] = F.normalize(p + drift, dim=0)               # ↳ dịch rồi chuẩn hoá lại.
+    return proto
+
+
+@torch.no_grad()
+def _add_new_protos(proto, model, loader, device, new_classes):
+    """Tính prototype cho các class MỚI (một lần, từ data task hiện tại) rồi ghi vào `proto`."""
+    model.eval()
+    C, D = int(proto.shape[0]), int(proto.shape[1])
+    psum = torch.zeros(C, D, device=device)
+    pcnt = torch.zeros(C, device=device)
+    for x, y in loader:
+        x, y = x.to(device), y.to(device)
+        h = F.normalize(model.features(x).float(), dim=1)       # ↳ feature sau memory.
+        psum.index_add_(0, y, h)                                # ↳ cộng dồn theo class.
+        pcnt.index_add_(0, y, torch.ones_like(y, dtype=torch.float))
+    for c in new_classes:
+        c = int(c)
+        if float(pcnt[c]) > 0:
+            proto[c] = F.normalize(psum[c] / pcnt[c], dim=0)    # ↳ trung bình -> prototype class mới.
+    return proto
+
+
 def train_one_task(model, method, loader, device, allowed: Sequence[int], train_cfg: dict,
                    opt=None):
     """Train model trên MỘT task. Trả về (loss từng epoch, optimizer đã dùng).
@@ -150,10 +204,22 @@ def run_continual(
     persist_opt = not bool(train_cfg.get("optimizer_per_task", True))  # ↳ Có giữ optimizer xuyên task không.
     opt_carry = None                                # ↳ Optimizer mang từ task trước sang (nếu persist).
 
+    # NCM-head shadow eval: 'rebuild' (cũ — dựng lại từ MỌI task) | 'sdc' (mới — bù trôi, không đọc lại data cũ)
+    want_ncm = bool(train_cfg.get("eval_ncm_head", False))            # ↳ Có chạy NCM-head shadow không.
+    ncm_mode = str(train_cfg.get("ncm_head_mode", "rebuild")).lower()  # ↳ Chế độ dựng prototype (mặc định = cũ).
+    sdc_sigma = float(train_cfg.get("sdc_sigma", 0.5))               # ↳ Độ rộng kernel Gaussian của SDC.
+    _proto = None                                                    # ↳ Prototype BỀN qua các task (chỉ cho SDC).
+
     for t, spec in enumerate(stream):               # ↳ Học lần lượt từng task t.
         allowed_train = spec.classes                # ↳ Khi train task t, chỉ tính loss trên class của task t.
         if verbose:
             print(f"[task {t}] classes={allowed_train} | train={len(spec.train_idx)}")
+        # SDC: chụp model TRƯỚC khi train task này (mốc đo trôi feature) — chỉ khi cần, t>0.
+        old_model_sdc = None
+        if want_ncm and ncm_mode == "sdc" and t > 0 and hasattr(model, "features"):
+            old_model_sdc = copy.deepcopy(model).eval()   # ↳ Bản sao đóng băng = "model cũ".
+            for p in old_model_sdc.parameters():
+                p.requires_grad_(False)
         if getattr(method, "gradient_free", False): # ↳ NCM: không train bằng gradient.
             # NCM và các method không train bằng gradient: chỉ "hấp thụ" dữ liệu task
             method.fit_task(model, task_loaders[t]["train"], device)  # ↳ Chỉ cập nhật prototype.
@@ -182,16 +248,28 @@ def run_continual(
             print(f"[task {t}] test acc so far: {row}")
 
         # ĐÒN A: NCM-head shadow eval (song song head Linear) — chỉ khi bật cờ + model có features().
-        if bool(train_cfg.get("eval_ncm_head", False)) and hasattr(model, "features") and hasattr(model, "head"):
+        if want_ncm and hasattr(model, "features") and hasattr(model, "head"):
             if "ncm_R" not in log:
                 log["ncm_R"] = np.zeros((T, T), dtype=float)
-            protos = _memory_prototypes(
-                model, task_loaders, device, list(range(t + 1)),
-                int(model.head.out_features), int(model.head.in_features),
-            )
+            num_classes, feat_dim = int(model.head.out_features), int(model.head.in_features)
+            if ncm_mode == "sdc":
+                # SDC: KHÔNG đọc lại data cũ — dịch prototype cũ theo trôi + thêm prototype class mới.
+                if _proto is None:
+                    _proto = torch.zeros(num_classes, feat_dim, device=device)  # ↳ prototype bền, khởi tạo 1 lần.
+                if old_model_sdc is not None:                    # ↳ t>0: bù trôi prototype class CŨ.
+                    _sdc_shift(_proto, old_model_sdc, model, task_loaders[t]["train"], device,
+                               seen_before=sorted(set(seen) - set(spec.classes)), sigma=sdc_sigma)
+                _add_new_protos(_proto, model, task_loaders[t]["train"], device, new_classes=list(spec.classes))
+                protos = _proto
+            else:  # 'rebuild' (mặc định): giữ NGUYÊN hành vi cũ — dựng lại từ mọi task đã thấy.
+                protos = _memory_prototypes(
+                    model, task_loaders, device, list(range(t + 1)), num_classes, feat_dim,
+                )
             for j in range(t + 1):
                 log["ncm_R"][t, j] = _evaluate_ncm(model, task_loaders[j]["test"], device, allowed_eval, protos)
             if verbose:
                 row = "  ".join(f"{log['ncm_R'][t, j]:.3f}" for j in range(t + 1))
-                print(f"[task {t}] NCM-head acc so far: {row}")
+                tag = "NCM-head(sdc)" if ncm_mode == "sdc" else "NCM-head"
+                print(f"[task {t}] {tag} acc so far: {row}")
+        del old_model_sdc                            # ↳ Giải phóng bản sao model cũ ngay sau khi dùng.
     return R, log                                   # ↳ Trả ma trận kết quả + log cho phần tính metric/báo cáo.
