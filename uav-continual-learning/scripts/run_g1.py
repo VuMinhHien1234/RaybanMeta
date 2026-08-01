@@ -51,6 +51,8 @@ def main() -> int:
     ap.add_argument("--method", default=None, help="finetune | ewc (mặc định lấy từ config)")
     ap.add_argument("--set", dest="overrides", nargs="*", default=[], metavar="k.sub=v",
                     help="override config, vd: train.lr=1e-4 data.num_tasks=5")
+    ap.add_argument("--resume", action="store_true",
+                    help="#23: chạy tiếp từ resume_checkpoint.pt trong thư mục kết quả (tự bật lưu checkpoint)")
     ap.add_argument("--skip-existing", action="store_true",
                     help="đã có metrics.json cho run này thì bỏ qua (resume cho run_all)")
     args = ap.parse_args()
@@ -66,6 +68,11 @@ def main() -> int:
     if args.skip_existing and (out / "metrics.json").exists():
         print(f"[SKIP] {out.name} — đã có kết quả.")
         return 0
+    # #23: bật checkpoint qua cờ CLI --resume hoặc config train.checkpoint=true (mặc định TẮT).
+    if args.resume or bool(cfg.get("train", {}).get("checkpoint", False)):
+        cfg["train"]["checkpoint_path"] = str(out / "resume_checkpoint.pt")
+    if args.resume:
+        cfg["train"]["resume"] = True
     seed_everything(seed)
     try:
         import torch  
@@ -76,7 +83,8 @@ def main() -> int:
     from uavcl.data.loaders import build_task_loaders
     from uavcl.engine import resolve_device, run_continual
     from uavcl.methods import build_method
-    from uavcl.metrics import average_accuracy, average_forgetting, backward_transfer, forward_transfer
+    from uavcl.metrics import (average_accuracy, average_anytime_accuracy, average_forgetting,
+                               backward_transfer, forward_transfer)
     from uavcl.models import ContinualClassifier, build_backbone
 
     device = resolve_device(cfg.get("device", "auto"))
@@ -85,15 +93,33 @@ def main() -> int:
     # --- data ---
     t0 = time.time()
     source = get_source(cfg["data"])
-    stream = build_stream(
-        source.splits["train"].labels,
-        source.splits["val"].labels,
-        source.splits["test"].labels,
-        num_classes=source.num_classes,
-        num_tasks=int(cfg["data"]["num_tasks"]),
-        seed=seed,
-        shuffle_classes=bool(cfg["data"].get("shuffle_classes", True)),
-    )
+    # #27 open-set: openset.enabled=true -> giữ lại `holdout` class KHÔNG BAO GIỜ train làm mẫu lạ.
+    os_cfg = cfg.get("openset") or {}
+    holdout_classes: list = []
+    if bool(os_cfg.get("enabled", False)):
+        from uavcl.data.stream import build_stream_with_holdout
+
+        stream, holdout_classes = build_stream_with_holdout(
+            source.splits["train"].labels,
+            source.splits["val"].labels,
+            source.splits["test"].labels,
+            num_classes=source.num_classes,
+            num_tasks=int(cfg["data"]["num_tasks"]),
+            seed=seed,
+            shuffle_classes=bool(cfg["data"].get("shuffle_classes", True)),
+            holdout=int(os_cfg.get("holdout", 5)),
+        )
+        print(f"[openset] class GIỮ LẠI (không train, làm mẫu lạ): {holdout_classes}")
+    else:
+        stream = build_stream(
+            source.splits["train"].labels,
+            source.splits["val"].labels,
+            source.splits["test"].labels,
+            num_classes=source.num_classes,
+            num_tasks=int(cfg["data"]["num_tasks"]),
+            seed=seed,
+            shuffle_classes=bool(cfg["data"].get("shuffle_classes", True)),
+        )
     print(describe_stream(stream, source.class_names))
     loaders = build_task_loaders(source, stream, cfg["data"])
 
@@ -150,6 +176,7 @@ def main() -> int:
         "optimizer": str(cfg["train"].get("optimizer", "adamw")).lower(),
         "optimizer_per_task": bool(cfg["train"].get("optimizer_per_task", True)),
         "average_accuracy": average_accuracy(R),
+        "average_anytime_accuracy": average_anytime_accuracy(R),  # #24: quan trọng cho regime streaming
         "average_forgetting": average_forgetting(R),
         "backward_transfer": backward_transfer(R),
         # FWT chỉ có nghĩa khi bật train.eval_future (đo acc task kế tiếp TRƯỚC khi học)
@@ -170,6 +197,24 @@ def main() -> int:
         .to_csv(out / "acc_matrix.csv", float_format="%.4f")
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     save_config(cfg, out / "config.yaml")
+
+    # #27: chấm open-set sau khi học xong — điểm = max cosine tới prototype các class đã học.
+    if holdout_classes:
+        from uavcl.data.loaders import build_eval_loader
+        from uavcl.metrics import open_set_summary
+        from uavcl.openset_eval import collect_openset_scores
+
+        held = set(int(c) for c in holdout_classes)
+        unseen_idx = [i for i, yy in enumerate(source.splits["test"].labels) if int(yy) in held]
+        unseen_loader = build_eval_loader(source, unseen_idx, cfg["data"])
+        genuine, impostor = collect_openset_scores(model, loaders, unseen_loader,
+                                                   source.num_classes, device)
+        osum = open_set_summary(genuine, impostor)
+        osum.update({"holdout_classes": sorted(held), "n_genuine": len(genuine),
+                     "n_impostor": len(impostor)})
+        (out / "metrics_openset.json").write_text(json.dumps(osum, indent=2), encoding="utf-8")
+        print(f"== OPEN-SET (#27): AUC={osum['auc']:.4f}  EER={osum['eer']:.4f}  "
+              f"TAR@FAR=10%={osum['tar@far=10%']:.4f}  (unseen={sorted(held)})")
     if hasattr(model, "export_state"):  # G2 (S10): lưu "cục ký ức" cuối stream
         st = model.export_state()
         if st is not None:

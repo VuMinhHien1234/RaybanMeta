@@ -95,3 +95,16 @@ def build_task_loaders(
             }
         )
     return out                                     # ↳ Danh sách: phần tử t = bộ loader của task t.
+
+
+def build_eval_loader(source: DataSource, indices: List[int], data_cfg: dict,
+                      split_name: str = "test") -> DataLoader:
+    """#27 — DataLoader eval (không aug, không xáo) trên danh sách chỉ số tuỳ ý của 1 split.
+
+    Dùng cho open-set: gom mẫu test của các class GIỮ LẠI (chưa từng train) thành 1 loader."""
+    image_size = int(data_cfg.get("image_size", 224))
+    batch_size = int(data_cfg.get("eval_batch_size", data_cfg.get("batch_size", 32)))
+    num_workers = int(data_cfg.get("num_workers", 2))
+    ds = TaskDataset(source.splits[split_name], indices, build_transforms(image_size, train=False))
+    return DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=num_workers,
+                      pin_memory=torch.cuda.is_available(), drop_last=False)

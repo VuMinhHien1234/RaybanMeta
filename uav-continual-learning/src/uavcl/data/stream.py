@@ -127,6 +127,49 @@ def build_stream(
     return stream                               # ↳ Trả về danh sách TaskSpec = "kịch bản" học liên tục.
 
 
+def build_stream_with_holdout(
+    train_labels: Sequence[int],
+    val_labels: Sequence[int],
+    test_labels: Sequence[int],
+    num_classes: int,
+    num_tasks: int,
+    seed: int = 0,
+    shuffle_classes: bool = True,
+    holdout: int = 5,
+) -> tuple[List[TaskSpec], List[int]]:
+    """#27 open-set — như build_stream nhưng GIỮ LẠI `holdout` class KHÔNG BAO GIỜ train.
+
+    Các class giữ lại làm "mẫu LẠ" (unseen) để đo open-set: model phải biết nói "không
+    biết" khi gặp chúng. Trả (stream trên các class còn lại, danh sách class giữ lại).
+    Cùng seed -> cùng phép xáo -> tái lập được."""
+    if not (1 <= holdout < num_classes):
+        raise ValueError(f"holdout cần trong [1, {num_classes - 1}] (nhận {holdout})")
+    order = list(range(num_classes))
+    if shuffle_classes:
+        random.Random(seed).shuffle(order)         # ↳ Cùng RNG/seed với split_classes -> nhất quán.
+    held = sorted(order[-holdout:])                # ↳ Cắt ĐUÔI sau xáo làm class lạ.
+    kept = order[:-holdout]
+    if len(kept) < num_tasks:
+        raise ValueError(f"còn {len(kept)} class cho {num_tasks} task — giảm holdout/num_tasks")
+    base, extra = divmod(len(kept), num_tasks)     # ↳ Chia phần còn lại thành num_tasks nhóm đều.
+    groups, i = [], 0
+    for t in range(num_tasks):
+        k = base + (1 if t < extra else 0)
+        groups.append(sorted(kept[i:i + k]))
+        i += k
+    tr = indices_by_task(train_labels, groups)
+    va = indices_by_task(val_labels, groups)
+    te = indices_by_task(test_labels, groups)
+    stream = [
+        TaskSpec(task_id=t, classes=groups[t], train_idx=tr[t], val_idx=va[t], test_idx=te[t])
+        for t in range(num_tasks)
+    ]
+    for spec in stream:
+        if not spec.train_idx or not spec.test_idx:
+            raise ValueError(f"Task {spec.task_id} has empty train/test — check labels/num_tasks")
+    return stream, held
+
+
 def describe_stream(stream: List[TaskSpec], class_names: Sequence[str] | None = None) -> str:
     # ↳ Chỉ để IN RA cho người xem: mỗi task có class gì, bao nhiêu mẫu. Không ảnh hưởng train.
     lines = []

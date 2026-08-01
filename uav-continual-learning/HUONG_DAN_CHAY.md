@@ -104,11 +104,43 @@ for s in 0 1 2; do \
   là bình thường — latent_replay kế thừa vòng đời titans).
 - Xong khi: 6 metrics.json (3 slda + 3 latreplay).
 
-### B4. Kéo về + đọc
-Đóng gói/kéo về y hệt C2 (tarball `res_base.tgz`, giải nén `from_base`). Đọc:
+### B4. Lấy kết quả về Mac sau khi chạy xong (mọi lệnh chạy TRÊN MAC)
+
+**B4.1 — Kiểm tra đã xong chưa:**
+```bash
+gcloud compute ssh uavcl-base --zone=asia-east1-a -- 'pgrep -af run_g1.py; ls /home/*/RaybanMeta/uav-continual-learning/artifacts_*/results/*/metrics.json 2>/dev/null | wc -l'
+```
+`pgrep` im lặng + đếm được **6** metrics.json (3 slda + 3 latreplay) = xong. Còn tiến trình → đợi tiếp.
+
+**B4.2 — Đóng gói trên VM + kéo về (kèm cả bench_vm.log):**
+```bash
+gcloud compute ssh uavcl-base --zone=asia-east1-a -- 'sudo bash -c "shopt -s nullglob; D=\$(ls -d /home/*/RaybanMeta/uav-continual-learning 2>/dev/null | head -1); cd \$D && tar czf /tmp/res_base.tgz artifacts_* *.log && chmod 644 /tmp/res_base.tgz && echo GOI_XONG \$D"'
+gcloud compute scp uavcl-base:/tmp/res_base.tgz ~/Desktop/Raybanmeta/result_test/ --zone=asia-east1-a
+```
+Thấy `GOI_XONG /home/...` = đóng gói thành công (`Connection closed` sau đó là bình thường).
+
+**B4.3 — Giải nén tách thư mục (không đè kết quả VM khác):**
+```bash
+cd ~/Desktop/Raybanmeta/result_test
+mkdir -p from_base && tar xzf res_base.tgz -C from_base
+```
+
+**B4.4 — In bảng so sánh (gộp chung với kết quả 2 VM head nếu đã kéo về):**
+```bash
+cd ~/Desktop/Raybanmeta
+python3 uav-continual-learning/scripts/compare_all.py result_test
+```
+
+**B4.5 — Xoá VM (kẻo tính tiền):**
+```bash
+gcloud compute instances delete uavcl-base --zone=asia-east1-a
+```
+
+**Cách đọc kết quả:**
 - SLDA = mốc "streaming rẻ nhất": nếu head mới (cosine/SDC) không vượt SLDA → chưa có gì để khoe.
 - latent_replay so với replay ảnh 0.7937 và với rebuild ~0.74–0.75: kỳ vọng nằm giữa;
   `method_extra_floats` trong metrics.json cho thấy buffer nhẹ hơn replay ảnh ~400 lần.
+- `from_base/bench_vm.log` (bench #28): ghép với `bench_mac.log` thành bảng 2 máy vào `docs/EDGE_COST.md`.
 
 ---
 

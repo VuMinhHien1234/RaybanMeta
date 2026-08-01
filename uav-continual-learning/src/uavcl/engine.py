@@ -219,7 +219,48 @@ def run_continual(
     sdc_sigma = float(train_cfg.get("sdc_sigma", 0.5))               # ↳ Độ rộng kernel Gaussian của SDC.
     _proto = None                                                    # ↳ Prototype BỀN qua các task (chỉ cho SDC).
 
+    # #23 checkpoint/resume (mặc định TẮT — không có checkpoint_path thì hành vi cũ y nguyên).
+    ckpt_path = train_cfg.get("checkpoint_path") or None             # ↳ Đường dẫn file checkpoint (str|None).
+    stop_after = train_cfg.get("stop_after_task", None)              # ↳ Dừng sớm sau task N (chạy theo ca / test).
+    stop_after = int(stop_after) if stop_after is not None else None
+    start_task = 0
+    if ckpt_path and bool(train_cfg.get("resume", False)):
+        import os
+        if os.path.exists(ckpt_path):
+            from .checkpoint import load_run_checkpoint
+            pay = load_run_checkpoint(ckpt_path, map_location=device)
+            if int(pay["num_tasks"]) != T:
+                raise ValueError(f"checkpoint có {pay['num_tasks']} task, stream hiện tại {T} — không khớp.")
+            model.load_state_dict(pay["model"])
+            if pay.get("memory_state") is not None:
+                model._state = pay["memory_state"]                    # ↳ Ký ức Titans (ngoài state_dict).
+            method = pay["method"]                                    # ↳ Buffer/anchor/teacher sống lại nguyên vẹn.
+            R, log = pay["R"], pay["log"]
+            _proto = pay.get("proto")
+            if persist_opt and pay.get("opt") is not None:            # ↳ Dựng lại optimizer rồi nạp state (M3 m1/m2/V).
+                from .optim import build_optimizer
+                if (train_cfg.get("cms") or {}).get("enabled", False):
+                    from .optim.cms_optimizer import build_cms_optimizer
+                    opt_carry = build_cms_optimizer(model, train_cfg)
+                else:
+                    opt_carry = build_optimizer(model.parameters(), train_cfg)
+                try:
+                    opt_carry.load_state_dict(pay["opt"])
+                except Exception as e:  # noqa: BLE001
+                    print(f"[ckpt] WARN: không nạp được optimizer state ({e}) — dùng optimizer mới.")
+            torch.set_rng_state(pay["torch_rng"].cpu())
+            import random as _random
+            _random.setstate(pay["py_rng"])
+            start_task = int(pay["task_done"]) + 1
+            seen = [c for s in stream[:start_task] for c in s.classes]  # ↳ Khôi phục danh sách class đã học.
+            if verbose:
+                print(f"[ckpt] RESUME từ '{ckpt_path}': xong tới task {pay['task_done']} -> chạy tiếp task {start_task}.")
+        elif verbose:
+            print(f"[ckpt] resume=true nhưng chưa có '{ckpt_path}' -> chạy từ đầu.")
+
     for t, spec in enumerate(stream):               # ↳ Học lần lượt từng task t.
+        if t < start_task:
+            continue                                # ↳ Resume: các task đã xong trong checkpoint thì bỏ qua.
         allowed_train = spec.classes                # ↳ Khi train task t, chỉ tính loss trên class của task t.
         if verbose:
             print(f"[task {t}] classes={allowed_train} | train={len(spec.train_idx)}")
@@ -281,4 +322,16 @@ def run_continual(
                 tag = "NCM-head(sdc)" if ncm_mode == "sdc" else "NCM-head"
                 print(f"[task {t}] {tag} acc so far: {row}")
         del old_model_sdc                            # ↳ Giải phóng bản sao model cũ ngay sau khi dùng.
+
+        # #23: lưu checkpoint SAU MỖI TASK (atomic) + tuỳ chọn dừng sớm theo ca.
+        if ckpt_path:
+            from .checkpoint import save_run_checkpoint
+            save_run_checkpoint(ckpt_path, model=model, opt=opt_carry, method=method,
+                                R=R, log=log, task_done=t, num_tasks=T, proto=_proto)
+            if verbose:
+                print(f"[ckpt] đã lưu sau task {t} -> {ckpt_path}")
+        if stop_after is not None and t >= stop_after:
+            if verbose:
+                print(f"[engine] dừng sớm sau task {t} (train.stop_after_task={stop_after}).")
+            break
     return R, log                                   # ↳ Trả ma trận kết quả + log cho phần tính metric/báo cáo.

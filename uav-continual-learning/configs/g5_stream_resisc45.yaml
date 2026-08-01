@@ -1,0 +1,62 @@
+# #24 (plans/TASKS_UAV_CL.md) — Regime ONLINE STREAMING: data chỉ đến MỘT lần.
+# UAV không có 3 epoch: mỗi mẫu thấy đúng 1 lần, batch nhỏ. So với bản 3-epoch để biết
+# phương pháp nào sụp khi mất multi-epoch. Đọc kết quả bằng average_anytime_accuracy (AAA)
+# trong metrics.json — model phải TỐT TRONG SUỐT hành trình, không chỉ ở cuối.
+# Nền = g2_titans_resisc45_selfmod_m3_improved (M3-clip), chỉ đổi: epochs 1, batch 16, lr 5e-3.
+seed: 0
+device: auto
+
+data:
+  name: resisc45
+  hf_repo: timm/resisc45
+  root: ./data
+  split_protocol: combined31500_v2
+  expected_total_samples: 31500
+  expected_samples_per_class: 700
+  num_tasks: 9
+  shuffle_classes: true
+  image_size: 224
+  batch_size: 16          # ↳ stream: lô nhỏ (UAV không gom được lô to)
+  num_workers: 2
+
+backbone:
+  name: vit_small_patch16_224
+  pretrained: true
+  freeze: true
+
+memory:
+  enabled: true
+  dim: auto
+  chunk_size: 32
+  seq: image_seq
+  reset: never
+  gated_transition: true
+  spectral_norm_surprises: true
+  qk_rmsnorm: true
+  max_grad_norm: 1.0
+  depth: 3
+  heads: 1
+  self_modifying: true
+  self_modifying_readpath: false
+
+train:
+  method: titans
+  optimizer: m3
+  epochs_per_task: 1      # ↳ CỐT LÕI regime này: mỗi mẫu thấy đúng 1 lần
+  lr: 0.005               # ↳ lr thắng trong sweep của An (1e-3 dưới sức — xem An/Titan_M3_results)
+  weight_decay: 0.01
+  grad_clip_norm: 1.0
+  optimizer_per_task: false
+  eval_future: true
+  checkpoint: true        # ↳ #23: stream dài, lưu checkpoint mỗi task (resume bằng --resume)
+  m3:
+    alpha: 0.5
+    frequency: 16
+    beta_style: delta
+    update_norm: clip
+    delta:
+      alpha: [0.999, 0.9999]
+      eta: [0.1, 0.05]
+
+log:
+  dir: ./artifacts_stream

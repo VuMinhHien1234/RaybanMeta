@@ -54,6 +54,19 @@ def forward_transfer(R, chance: float = 0.0) -> float:
     return float(np.mean(vals))
 
 
+def average_anytime_accuracy(R) -> float:
+    """#24 — AAA (Average Anytime Accuracy) cho regime STREAMING/UAV.
+
+    ``mean over t of mean_{j<=t} R[t, j]``: sau MỖI task, đo trung bình acc trên mọi
+    task đã thấy, rồi trung bình qua các mốc. Khác average_accuracy (chỉ nhìn HÀNG CUỐI):
+    UAV dùng model LIÊN TỤC trong lúc học, không chỉ lúc "học xong hết" — model sập ở
+    giữa hành trình rồi hồi lại cuối kỳ vẫn bị AAA phạt, dù acc cuối đẹp."""
+    R = np.asarray(R, dtype=float)
+    T = R.shape[0]
+    stage_means = [float(np.mean(R[t, : t + 1])) for t in range(T)]  # ↳ Trung bình phần đã thấy ở mỗi mốc t.
+    return float(np.mean(stage_means))
+
+
 def average_forgetting(R) -> float:
     """Average forgetting: mean drop from each task's best-ever accuracy to its final
     accuracy (lower = better; this is the headline number the project tries to reduce)."""
