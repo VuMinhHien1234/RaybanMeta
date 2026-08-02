@@ -37,6 +37,16 @@ import torch.nn.functional as F
 
 from .models.classifier import mask_logits
 
+# Ngưỡng cảnh báo cổng bão hoà (TASK 3, 2026-08-02). Xem `scripts/trace_gates.py`.
+#   α = decay_factor, hệ số GIỮ LẠI = (1−α)  [neural_memory.py:813]
+#   α > ALPHA_SAT_HI: xoá sạch mỗi chunk -> memory KHÔNG tích luỹ (norm phẳng ~54)
+#   α < ALPHA_SAT_LO: không quên gì      -> HƯỚNG NỔ norm (m3_s1: α=0 -> norm 1.75e6)
+ALPHA_SAT_HI, ALPHA_SAT_LO = 0.99, 0.01
+# η THẬT = sigmoid(logit) * max_lr. Ngưỡng phải tính theo PHÂN SỐ của max_lr, KHÔNG hardcode
+# giá trị tuyệt đối: max_lr thật của thư viện là 1.0 (neural_memory.py:272), không phải 1e-2
+# như default của hàm transform gợi ý. Ngoài khoảng này = sigmoid bão hoà -> Eq 76 mất tác dụng.
+from .models.memory import ETA_FRAC_HI, ETA_FRAC_LO  # noqa: E402
+
 
 class FineTune:
     # ↳ Baseline "ngây thơ": học task mới, KHÔNG làm gì để giữ task cũ -> quên nhiều nhất.
@@ -254,13 +264,31 @@ class TitansCL(FineTune):
             if st:
                 parts = "  ".join(f"{tag}:β={b:.2f} |W|={w:.2f}" for tag, (b, w) in st.items())
                 print(f"[titans]   self-mod {parts}")
-        # η_t (tốc độ ghi, Eq 76) + α_t (cổng quên) — vá lỗ hổng Task 2: η lớn dần / α~1 = hướng NỔ norm.
+        # η_t (tốc độ ghi, Eq 76) + α_t (cổng quên) — vá lỗ hổng Task 2.
+        #   eta_raw  = logit THÔ (trước adaptive_step_transform) — giữ để so với log run cũ.
+        #   eta_real = sigmoid(logit)*max_lr = learning-rate THẬT của memory.
+        #   alpha    = decay_factor; hệ số GIỮ LẠI = (1−α)  [neural_memory.py:813]
+        #              α→0 = không quên gì -> HƯỚNG NỔ · α→1 = xoá sạch, memory không tích luỹ.
         if hasattr(model, "eta_alpha_stats"):
-            eta, alpha = model.eta_alpha_stats()
+            eta, eta_real, alpha = model.eta_alpha_stats()
             if eta is not None or alpha is not None:
                 es = f"{eta:.4f}" if eta is not None else "n/a"
+                ers = f"{eta_real:.4e}" if eta_real is not None else "n/a"
                 as_ = f"{alpha:.4f}" if alpha is not None else "n/a"
+                keep = f"{1.0 - alpha:.4f}" if alpha is not None else "n/a"
+                print(f"[titans]   eta_raw={es}  eta_real={ers}  alpha={as_}  keep={keep}")
+                # giữ NGUYÊN VĂN dòng cũ để compare_all/trace_gates của bản cũ vẫn đọc được
                 print(f"[titans]   eta_t(avg)={es}  alpha_t/forget-gate(avg)={as_}")
+            # TASK 3 — cảnh báo bão hoà. Đây là thứ đáng lẽ đã bắt được lỗi α/η từ tháng trước.
+            if alpha is not None and (alpha > ALPHA_SAT_HI or alpha < ALPHA_SAT_LO):
+                which = "XOÁ SẠCH (memory không tích luỹ)" if alpha > ALPHA_SAT_HI \
+                    else "KHÔNG QUÊN GÌ (hướng NỔ norm)"
+                print(f"[titans]   ⚠️ CỔNG QUÊN BÃO HOÀ α={alpha:.4f} → {which} "
+                      f"— Eq 76 không còn phụ thuộc dữ liệu")
+            max_lr = getattr(getattr(model, "memory", None), "_eta_max_lr", 1.0)
+            if eta_real is not None and not (ETA_FRAC_LO * max_lr <= eta_real <= ETA_FRAC_HI * max_lr):
+                print(f"[titans]   ⚠️ η BÃO HOÀ η_real={eta_real:.4g} (max_lr={max_lr:g}) "
+                      f"— ngoài vùng lành mạnh [{ETA_FRAC_LO * max_lr:.4g}, {ETA_FRAC_HI * max_lr:.4g}]")
 
     def footprint_floats(self, model) -> int:
         return int(model.extra_floats()) if hasattr(model, "extra_floats") else 0

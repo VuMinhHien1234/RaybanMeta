@@ -1,0 +1,61 @@
+seed: 0
+device: auto
+data:
+  name: resisc45
+  hf_repo: timm/resisc45
+  root: ./data
+  split_protocol: combined31500_v2
+  expected_total_samples: 31500
+  expected_samples_per_class: 700
+  num_tasks: 3
+  shuffle_classes: true
+  image_size: 224
+  batch_size: 32
+  num_workers: 2
+backbone:
+  name: vit_small_patch16_224
+  pretrained: true
+  freeze: true
+memory:
+  enabled: true
+  dim: auto
+  chunk_size: 32
+  seq: image_seq
+  reset: never
+  gated_transition: true
+  spectral_norm_surprises: true
+  qk_rmsnorm: true
+  max_grad_norm: 1.0
+  depth: 3
+  heads: 1
+  self_modifying: true
+  self_modifying_readpath: false
+  gate_bound:
+    alpha_logit_limit: 2.9444
+    eta_logit_limit: 2.1972
+  pre_norm: true
+  init_decay_bias: 0.0
+  init_adaptive_step_bias: 0.0
+train:
+  method: titans
+  optimizer: m3
+  epochs_per_task: 1
+  lr: 0.001
+  weight_decay: 0.01
+  grad_clip_norm: 1.0
+  optimizer_per_task: false
+  eval_future: true
+  m3:
+    alpha: 0.5
+    frequency: 16
+    beta_style: delta
+    update_norm: clip
+    delta:
+      alpha:
+      - 0.999
+      - 0.9999
+      eta:
+      - 0.1
+      - 0.05
+log:
+  dir: ./artifacts_smoke_gates

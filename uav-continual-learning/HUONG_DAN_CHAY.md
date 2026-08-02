@@ -10,6 +10,11 @@ phân tích. Gộp mọi bài học đã gặp (đường dẫn theo user, cú p
 
 ## 🆕 CAMPAIGN HEAD MỚI 2026-08-01 — lấy kết quả về & so sánh
 
+> **Cập nhật tối 01-08:** campaign đã CHẠY LẠI với `train.lr=0.005` (lr 0.001 mặc định dưới sức
+> theo sweep của An) + `train.checkpoint=true`. Tên VM/thư mục artifacts giữ nguyên → mọi bước
+> C1–C6 và B4 dưới đây dùng nguyên. Lệnh tar đã loại `resume_checkpoint.pt` (~90MB/run, không cần kéo về).
+> VM chết giữa chừng: SSH lại, chạy đúng lệnh cũ THÊM `--resume` sau `run_g1.py` → nối tiếp task đã xong.
+
 Đang chạy trên 2 VM, nền **M3-clip** (`configs/g2_titans_resisc45_selfmod_m3_improved.yaml`):
 
 | VM | Zone | Chạy gì | Xong khi có |
@@ -27,11 +32,11 @@ gcloud compute ssh uavcl-sdc --zone=us-central1-a -- 'pgrep -af run_g1.py; ls /h
 ### C2. Đóng gói + kéo về Mac (mỗi VM một tarball, KHÁC TÊN kẻo đè)
 ```bash
 # VM cosine
-gcloud compute ssh uavcl-cos --zone=us-east1-b -- 'sudo bash -c "shopt -s nullglob; D=\$(ls -d /home/*/RaybanMeta/uav-continual-learning 2>/dev/null | head -1); cd \$D && tar czf /tmp/res_cos.tgz artifacts_* *.log && chmod 644 /tmp/res_cos.tgz && echo GOI_XONG \$D"'
+gcloud compute ssh uavcl-cos --zone=us-east1-b -- 'sudo bash -c "shopt -s nullglob; D=\$(ls -d /home/*/RaybanMeta/uav-continual-learning 2>/dev/null | head -1); cd \$D && tar czf /tmp/res_cos.tgz --exclude=resume_checkpoint.pt artifacts_* *.log && chmod 644 /tmp/res_cos.tgz && echo GOI_XONG \$D"'
 gcloud compute scp uavcl-cos:/tmp/res_cos.tgz ~/Desktop/Raybanmeta/result_test/ --zone=us-east1-b
 
 # VM sdc
-gcloud compute ssh uavcl-sdc --zone=us-central1-a -- 'sudo bash -c "shopt -s nullglob; D=\$(ls -d /home/*/RaybanMeta/uav-continual-learning 2>/dev/null | head -1); cd \$D && tar czf /tmp/res_sdc.tgz artifacts_* *.log && chmod 644 /tmp/res_sdc.tgz && echo GOI_XONG \$D"'
+gcloud compute ssh uavcl-sdc --zone=us-central1-a -- 'sudo bash -c "shopt -s nullglob; D=\$(ls -d /home/*/RaybanMeta/uav-continual-learning 2>/dev/null | head -1); cd \$D && tar czf /tmp/res_sdc.tgz --exclude=resume_checkpoint.pt artifacts_* *.log && chmod 644 /tmp/res_sdc.tgz && echo GOI_XONG \$D"'
 gcloud compute scp uavcl-sdc:/tmp/res_sdc.tgz ~/Desktop/Raybanmeta/result_test/ --zone=us-central1-a
 ```
 Thấy `GOI_XONG /home/...` là gói thành công. (`Connection closed` sau đó là bình thường.)
@@ -114,7 +119,7 @@ gcloud compute ssh uavcl-base --zone=asia-east1-a -- 'pgrep -af run_g1.py; ls /h
 
 **B4.2 — Đóng gói trên VM + kéo về (kèm cả bench_vm.log):**
 ```bash
-gcloud compute ssh uavcl-base --zone=asia-east1-a -- 'sudo bash -c "shopt -s nullglob; D=\$(ls -d /home/*/RaybanMeta/uav-continual-learning 2>/dev/null | head -1); cd \$D && tar czf /tmp/res_base.tgz artifacts_* *.log && chmod 644 /tmp/res_base.tgz && echo GOI_XONG \$D"'
+gcloud compute ssh uavcl-base --zone=asia-east1-a -- 'sudo bash -c "shopt -s nullglob; D=\$(ls -d /home/*/RaybanMeta/uav-continual-learning 2>/dev/null | head -1); cd \$D && tar czf /tmp/res_base.tgz --exclude=resume_checkpoint.pt artifacts_* *.log && chmod 644 /tmp/res_base.tgz && echo GOI_XONG \$D"'
 gcloud compute scp uavcl-base:/tmp/res_base.tgz ~/Desktop/Raybanmeta/result_test/ --zone=asia-east1-a
 ```
 Thấy `GOI_XONG /home/...` = đóng gói thành công (`Connection closed` sau đó là bình thường).

@@ -1,0 +1,19 @@
+{
+  "dataset": "resisc45",
+  "method": "titans",
+  "seed": 0,
+  "num_tasks": 3,
+  "backbone": "vit_small_patch16_224",
+  "head": "linear",
+  "optimizer": "m3",
+  "optimizer_per_task": false,
+  "average_accuracy": 0.7299617389198221,
+  "average_anytime_accuracy": 0.8090220715222105,
+  "average_forgetting": -0.003301592479976856,
+  "backward_transfer": 0.003301592479976856,
+  "forward_transfer": 0.0,
+  "trainable_params": 7992626,
+  "method_extra_floats": 25687730,
+  "runtime_sec": 1439.8,
+  "memory_reset": "never"
+}

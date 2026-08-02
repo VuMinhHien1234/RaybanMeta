@@ -54,14 +54,23 @@ RESET_MODES = ("image", "task", "never")  # ↳ 3 chế độ giữ ký ức h�
 _STABILITY_KEYS = ("gated_transition", "spectral_norm_surprises", "qk_rmsnorm",
                    "per_parameter_lr_modulation")  # ↳ các cờ dạng bật/tắt truyền thẳng xuống NeuralMemory.
 
+# TASK 5 (2026-08-02) — khởi tạo cổng TRUNG TÍNH. Thư viện đã hỗ trợ sẵn (neural_memory.py:526-540):
+# đặt bias hằng số + zero trọng số Linear -> cổng khởi đầu là hằng số ở giữa dải, rồi mới học dần
+# thành phụ thuộc dữ liệu. Giá trị 0.0 -> sigmoid(0)=0.5 -> α khởi đầu 0.5, η khởi đầu 0.5*max_lr.
+# LƯU Ý: cách này KHÔNG tự ngăn trôi về sau (trọng số vẫn lớn dần) — nó bổ trợ cho `gate_bound`.
+_INIT_BIAS_KEYS = ("init_adaptive_step_bias", "init_decay_bias", "init_momentum_bias")
+
 
 def _stability_kwargs(memory_cfg: dict) -> dict:
-    # ↳ Đọc 4 cờ ổn định từ config -> gom thành dict để truyền xuống TitansMemory.
+    # ↳ Đọc các cờ ổn định từ config -> gom thành dict để truyền xuống TitansMemory.
     #   Key nào KHÔNG có trong config thì bỏ qua -> giữ đúng mặc định thư viện (an toàn ngược).
     kw = {}
     for k in _STABILITY_KEYS:
         if k in memory_cfg:
             kw[k] = bool(memory_cfg[k])              # ↳ 3 cờ boolean.
+    for k in _INIT_BIAS_KEYS:                        # ↳ TASK 5: 3 bias khởi tạo (số thực).
+        if memory_cfg.get(k) is not None:
+            kw[k] = float(memory_cfg[k])
     if memory_cfg.get("max_grad_norm") is not None:
         kw["max_grad_norm"] = float(memory_cfg["max_grad_norm"])  # ↳ Ngưỡng clip (số thực).
     return kw
@@ -109,9 +118,20 @@ class TitansClassifier(nn.Module):
         self.memory = TitansMemory(
             dim=dim, chunk_size=int(memory_cfg.get("chunk_size", 64)),
             self_referential=self_ref, self_modifying=self_mod,
-            self_modifying_readpath=self_mod_rp, **stab_kwargs  # ↳ self-mod bao trùm self-ref.
+            self_modifying_readpath=self_mod_rp,
+            gate_bound=memory_cfg.get("gate_bound"),  # ↳ TASK 4: chặn trôi cổng η/α (mặc định None = tắt).
+            **stab_kwargs  # ↳ self-mod bao trùm self-ref.
         )
+        _gb = self.memory.gate_bound_report() if hasattr(self.memory, "gate_bound_report") else None
+        if _gb:
+            print(f"[titans] gate_bound BẬT — {_gb}")  # ↳ in 1 lần lúc dựng model, để log có bằng chứng.
         self.post_norm = nn.LayerNorm(dim)  # luật C2: ổn định số sau memory  ↳ Chuẩn hoá đầu ra memory.
+        # TASK 4 (bổ trợ) — chuẩn hoá TRƯỚC memory. Hai cổng η/α là nn.Linear áp THẲNG lên feature
+        # ViT thô (neural_memory.py:451, :514); không có chuẩn hoá nào ở phía trước -> logit dễ lớn.
+        # `qk_rmsnorm` KHÔNG cứu được vì nó chỉ chạm q/k trong đường đọc/ghi, không chạm 2 cổng này.
+        # Mặc định TẮT -> run cũ bất biến. Đây là thuốc BỔ TRỢ: nó sửa thang đo lúc khởi tạo, còn
+        # đà TRÔI do gradient thì phải dùng `gate_bound`.
+        self.pre_norm = nn.LayerNorm(dim) if bool(memory_cfg.get("pre_norm", False)) else None
         self.head = build_head(head, dim, num_classes)  # ↳ linear (mặc định) | cosine (chống recency bias).
         self._state = None  # "cục ký ức" hiện tại của stream  ↳ Bắt đầu chưa có ký ức.
 
@@ -151,10 +171,13 @@ class TitansClassifier(nn.Module):
         Tách riêng (task #22, plans/TASKS_UAV_CL.md) để latent replay đưa feature CŨ đã lưu
         đi lại qua memory+head mà không cần ảnh gốc. Luật vòng đời state giữ nguyên như features()."""
         seq = self.adapter(feats)  # (1, L, D)  ↳ Bước 2: feature -> chuỗi cho memory.
+        # TASK 4: chỉ ĐẦU VÀO memory được chuẩn hoá; residual phía dưới vẫn dùng `seq` THÔ
+        # (thay đổi tối thiểu — đường tín hiệu gốc không bị đụng, post_norm đã lo chênh thang đo).
+        seq_in = self.pre_norm(seq) if self.pre_norm is not None else seq
 
         if self.training and self.reset_mode in ("task", "never"):
             # nối ký ức: xuất phát từ state hiện tại, LƯU state mới (đã detach — luật 1)
-            out, new_state = self.memory(seq, state=self._state)  # ↳ Đọc + tự ghi ký ức, có nối tiếp state cũ.
+            out, new_state = self.memory(seq_in, state=self._state)  # ↳ Đọc + tự ghi ký ức, có nối tiếp state cũ.
             if new_state is not None:
                 self._state = detach_state(new_state)  # ↳ LUẬT 1: cắt gradient nhưng giữ giá trị ký ức.
         else:
@@ -162,7 +185,7 @@ class TitansClassifier(nn.Module):
             init = None
             if (not self.training) and self.reset_mode in ("task", "never") and self._state is not None:
                 init = clone_state(self._state)  # ↳ LUẬT 2: eval trên BẢN SAO ký ức, không làm bẩn state thật.
-            out, _ = self.memory(seq, state=init)  # ↳ Bỏ qua state mới (dấu "_") -> không ghi khi eval.
+            out, _ = self.memory(seq_in, state=init)  # ↳ Bỏ qua state mới (dấu "_") -> không ghi khi eval.
 
         return self.post_norm(self.adapter.restore(out) + self.adapter.restore(seq))  # residual + chuẩn hoá
         # ↳ Gấp chuỗi về (B,D); cộng residual (đầu vào + đầu ra memory) rồi chuẩn hoá -> ổn định, đỡ mất tín hiệu gốc.
@@ -188,8 +211,12 @@ class TitansClassifier(nn.Module):
             self.memory.reset_eta_alpha()
 
     def eta_alpha_stats(self):
-        """(η_t, α_t) trung bình trong task — η lớn / α~1 = ghi hung/không quên = hướng NỔ."""
-        return self.memory.eta_alpha_stats() if hasattr(self.memory, "eta_alpha_stats") else (None, None)
+        """(η logit thô, η THẬT, α_t) trung bình trong task.
+
+        η THẬT = sigmoid(logit)*max_lr (xem memory.py). α = decay_factor; GIỮ LẠI = (1−α):
+        α→0 = không quên gì = hướng NỔ norm; α→1 = xoá sạch = memory không tích luỹ.
+        """
+        return self.memory.eta_alpha_stats() if hasattr(self.memory, "eta_alpha_stats") else (None, None, None)
 
     def self_mod_stats(self):
         """{q|k|v: (β, ‖W_state‖)} của các nhánh self-modifying (TASK 4 + hướng 1), else None — để log."""
