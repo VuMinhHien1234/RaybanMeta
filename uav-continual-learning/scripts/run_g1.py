@@ -153,8 +153,15 @@ def main() -> int:
         from uavcl.models.slda import SLDAClassifier
 
         slda_cfg = cfg.get("slda", {}) or {}
-        model = SLDAClassifier(backbone, feat_dim, source.num_classes,
-                               shrinkage=float(slda_cfg.get("shrinkage", 1e-4))).to(device)
+        model = SLDAClassifier(
+            backbone, feat_dim, source.num_classes,
+            shrinkage=float(slda_cfg.get("shrinkage", 1e-4)),
+            # B2 ablation: streaming (mặc định) | identity (= NCM) | frozen (Σ đóng băng)
+            cov_mode=str(slda_cfg.get("cov_mode", "streaming")),
+            cov_freeze_after=int(slda_cfg.get("cov_freeze_after", 1)),
+        ).to(device)
+        print(f"[slda] shrinkage={model.shrinkage:g} cov_mode={model.cov_mode}"
+              + (f" cov_freeze_after={model.cov_freeze_after}" if model.cov_mode == "frozen" else ""))
     else:
         model = ContinualClassifier(backbone, feat_dim, source.num_classes, head=head_kind).to(device)
     method = build_method(method_name, cfg)

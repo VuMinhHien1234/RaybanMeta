@@ -1,0 +1,77 @@
+{
+  "device": "mps",
+  "dim": 384,
+  "classes": 45,
+  "batch": 32,
+  "rows": [
+    {
+      "ten": "SLDA (streaming)",
+      "thiet_bi": "cpu",
+      "bo_nho_MB": 1.387548,
+      "suy_luan_ms_moi_anh": 0.00028287213353905827,
+      "cap_nhat_ms_moi_anh": 0.006752794797648676,
+      "nghich_dao_ms_moi_lan": 1.4091418124735355,
+      "ghi_chu": "nghịch đảo O(D³) chạy LAZY — 1 lần/task, không phải mỗi ảnh",
+      "_sd": {
+        "fwd": 0.0004501636933984272,
+        "upd": 0.015822512211660193,
+        "inv": 0.10614352827068355
+      }
+    },
+    {
+      "ten": "SLDA (identity)",
+      "thiet_bi": "cpu",
+      "bo_nho_MB": 1.387548,
+      "suy_luan_ms_moi_anh": 0.00026608031475916505,
+      "cap_nhat_ms_moi_anh": 0.007048958286759444,
+      "nghich_dao_ms_moi_lan": 0.20351684652268887,
+      "ghi_chu": "identity: không nghịch đảo",
+      "_sd": {
+        "fwd": 0.0006098334256391438,
+        "upd": 0.011091334306471703,
+        "inv": 0.02252519069613945
+      }
+    },
+    {
+      "ten": "SLDA (frozen)",
+      "thiet_bi": "cpu",
+      "bo_nho_MB": 1.387548,
+      "suy_luan_ms_moi_anh": 0.00028411268431227654,
+      "cap_nhat_ms_moi_anh": 0.007042772995191626,
+      "nghich_dao_ms_moi_lan": 1.4145499095320702,
+      "ghi_chu": "nghịch đảo O(D³) chạy LAZY — 1 lần/task, không phải mỗi ảnh",
+      "_sd": {
+        "fwd": 0.0004978840968565335,
+        "upd": 0.013482119603141305,
+        "inv": 0.04494276250140719
+      }
+    },
+    {
+      "ten": "SLDA (streaming, float32)",
+      "thiet_bi": "mps",
+      "bo_nho_MB": 0.728424,
+      "suy_luan_ms_moi_anh": 0.007172329424065538,
+      "cap_nhat_ms_moi_anh": 0.0183751319127623,
+      "nghich_dao_ms_moi_lan": 6.002524867653847,
+      "ghi_chu": "nghịch đảo O(D³) chạy LAZY — 1 lần/task, không phải mỗi ảnh",
+      "_sd": {
+        "fwd": 0.005478671712589848,
+        "upd": 0.18650165467768998,
+        "inv": 0.19701449385332662
+      }
+    },
+    {
+      "ten": "Titans (self-modifying, depth=3)",
+      "thiet_bi": "mps",
+      "bo_nho_MB": 102.68162,
+      "suy_luan_ms_moi_anh": 2.178246417315677,
+      "cap_nhat_ms_moi_anh": 0.0,
+      "ghi_chu": "suy luận ĐÃ GỒM ghi bộ nhớ (test-time learning) — không tách được",
+      "_sd": {
+        "fwd": 0.9362747462794925
+      },
+      "_tham_so_MB": 31.89506,
+      "_state_MB": 70.78656
+    }
+  ]
+}

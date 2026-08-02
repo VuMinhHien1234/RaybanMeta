@@ -401,6 +401,18 @@ class SLDA(FineTune):
             feats = model.backbone(x.to(device))       # ↳ Feature backbone đóng băng.
             model.update(feats, y.to(device))          # ↳ Streaming: mỗi mẫu thấy đúng 1 lần.
 
+    @torch.no_grad()
+    def end_task(self, model, loader, device, allowed: Sequence[int]) -> None:
+        # B2: báo mốc kết thúc task cho chế độ cov_mode="frozen" (no-op ở các chế độ khác).
+        if hasattr(model, "on_task_end"):
+            model.on_task_end()
+        # B6: in chi phí bộ nhớ THẬT (byte) — extra_floats không phản ánh dtype float64.
+        if hasattr(model, "memory_report"):
+            r = model.memory_report()
+            print(f"[slda] cov_mode={r['cov_mode']} | bộ nhớ = {r['total_MB']:.3f} MB "
+                  f"(gram {r['gram_DxD'] / 1e6:.3f} + means {r['feat_sum_CxD'] / 1e6:.3f} "
+                  f"+ cache {r['cache_w_b'] / 1e6:.3f})")
+
     def footprint_floats(self, model) -> int:
         return int(model.extra_floats()) if hasattr(model, "extra_floats") else 0
 
