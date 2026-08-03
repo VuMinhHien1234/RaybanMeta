@@ -3,6 +3,13 @@ result_test/
 *.tgz
 *.pt
 .venv/
-data/
+# CHỈ thư mục dataset tải về, KHÔNG phải mọi thư mục tên "data".
+# Trước đây để trống là `data/` -> git coi là "bất kỳ thư mục nào tên data ở BẤT KỲ ĐÂU",
+# nên nó nuốt luôn `src/uavcl/data/` và âm thầm bỏ qua file mới trong đó (drift.py).
+# File cũ vẫn được theo dõi vì đã add từ trước -> lỗi cực khó thấy: commit xanh, push xanh,
+# tới lúc chạy trên VM mới vỡ với ModuleNotFoundError.
+# Dấu `/` ở ĐẦU neo pattern vào gốc repo.
+/data/
+/uav-continual-learning/data/
 __pycache__/
 .DS_Store
