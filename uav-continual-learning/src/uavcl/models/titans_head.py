@@ -122,9 +122,11 @@ class TitansClassifier(nn.Module):
             gate_bound=memory_cfg.get("gate_bound"),  # ↳ TASK 4: chặn trôi cổng η/α (mặc định None = tắt).
             **stab_kwargs  # ↳ self-mod bao trùm self-ref.
         )
+        # G1 (2026-08-03) — in CẢ KHI TẮT. Bản cũ chỉ in khi bật, nên muốn biết bản vá có chạy
+        # không thì phải để ý sự VẮNG MẶT của một dòng log — tín hiệu quá yếu. Giờ log luôn có
+        # đúng một dòng khẳng định, đọc là biết ngay.
         _gb = self.memory.gate_bound_report() if hasattr(self.memory, "gate_bound_report") else None
-        if _gb:
-            print(f"[titans] gate_bound BẬT — {_gb}")  # ↳ in 1 lần lúc dựng model, để log có bằng chứng.
+        print(f"[titans] gate_bound {'BẬT — ' + _gb if _gb else 'TẮT (config không khai báo)'}")
         self.post_norm = nn.LayerNorm(dim)  # luật C2: ổn định số sau memory  ↳ Chuẩn hoá đầu ra memory.
         # TASK 4 (bổ trợ) — chuẩn hoá TRƯỚC memory. Hai cổng η/α là nn.Linear áp THẲNG lên feature
         # ViT thô (neural_memory.py:451, :514); không có chuẩn hoá nào ở phía trước -> logit dễ lớn.

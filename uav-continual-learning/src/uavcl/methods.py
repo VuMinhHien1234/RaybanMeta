@@ -47,6 +47,11 @@ ALPHA_SAT_HI, ALPHA_SAT_LO = 0.99, 0.01
 # như default của hàm transform gợi ý. Ngoài khoảng này = sigmoid bão hoà -> Eq 76 mất tác dụng.
 from .models.memory import ETA_FRAC_HI, ETA_FRAC_LO  # noqa: E402
 
+# G3 (2026-08-03) — bão hoà so với TRẦN THẬT đang áp, không phải so với hằng số cố định.
+# Cổng nằm ngoài [1−f, f] của khoảng đã chặn coi như đã dính biên. 0.90 chọn để bắt được
+# đúng ca đã xảy ra: η task 8 ở 99,5% khoảng, α ở 2,0% khoảng — cả hai đều phải kêu.
+GATE_SAT_FRAC = 0.90
+
 
 class FineTune:
     # ↳ Baseline "ngây thơ": học task mới, KHÔNG làm gì để giữ task cũ -> quên nhiều nhất.
@@ -279,13 +284,38 @@ class TitansCL(FineTune):
                 print(f"[titans]   eta_raw={es}  eta_real={ers}  alpha={as_}  keep={keep}")
                 # giữ NGUYÊN VĂN dòng cũ để compare_all/trace_gates của bản cũ vẫn đọc được
                 print(f"[titans]   eta_t(avg)={es}  alpha_t/forget-gate(avg)={as_}")
-            # TASK 3 — cảnh báo bão hoà. Đây là thứ đáng lẽ đã bắt được lỗi α/η từ tháng trước.
+
+            # --- G3 (2026-08-03): BÃO HOÀ SO VỚI TRẦN THẬT, không phải so với hằng số cố định ---
+            # Vì sao đổi: log cũ in "η=0.896" mà KHÔNG in trần, nên người đọc không có mốc để biết
+            # đó là sát trần hay giữa dải. Lỗi trần η lệch thang 100× vì thế sống sót trọn một ngày.
+            # Giờ in vị trí TƯƠNG ĐỐI trong khoảng đã chặn — máy tự nói ra thay vì bắt người suy luận.
+            mem = getattr(model, "memory", None)
+            def _vi_tri(gia_tri, ten):
+                r = mem.gate_bound_range(ten) if hasattr(mem, "gate_bound_range") else None
+                if r is None or gia_tri is None or r[1] <= r[0]:
+                    return None, None
+                return (gia_tri - r[0]) / (r[1] - r[0]), r
+
+            for gia_tri, ten, ky_hieu, dinh in ((eta_real, "eta", "η", "{:.4g}"),
+                                                (alpha, "alpha", "α", "{:.4f}")):
+                frac, r = _vi_tri(gia_tri, ten)
+                if frac is None:
+                    continue
+                print(f"[titans]   {ky_hieu}={dinh.format(gia_tri)} "
+                      f"({frac * 100:.0f}% khoảng [{dinh.format(r[0])}, {dinh.format(r[1])}])")
+                if frac > GATE_SAT_FRAC or frac < 1.0 - GATE_SAT_FRAC:
+                    bien = "TRẦN" if frac > 0.5 else "SÀN"
+                    print(f"[titans]   ⚠️ {ky_hieu} BÃO HOÀ Ở {bien} ({frac * 100:.0f}%) — cổng thành "
+                          "hằng số, Eq 76 hết phụ thuộc dữ liệu. Cân nhắc dời tâm "
+                          f"({ten}_logit_center) thay vì chỉ nới độ rộng.")
+
+            # TASK 3 — ngưỡng tuyệt đối, vẫn giữ: bắt trường hợp KHÔNG bật gate_bound (không có trần).
             if alpha is not None and (alpha > ALPHA_SAT_HI or alpha < ALPHA_SAT_LO):
                 which = "XOÁ SẠCH (memory không tích luỹ)" if alpha > ALPHA_SAT_HI \
                     else "KHÔNG QUÊN GÌ (hướng NỔ norm)"
                 print(f"[titans]   ⚠️ CỔNG QUÊN BÃO HOÀ α={alpha:.4f} → {which} "
                       f"— Eq 76 không còn phụ thuộc dữ liệu")
-            max_lr = getattr(getattr(model, "memory", None), "_eta_max_lr", 1.0)
+            max_lr = getattr(mem, "_eta_max_lr", 1.0)
             if eta_real is not None and not (ETA_FRAC_LO * max_lr <= eta_real <= ETA_FRAC_HI * max_lr):
                 print(f"[titans]   ⚠️ η BÃO HOÀ η_real={eta_real:.4g} (max_lr={max_lr:g}) "
                       f"— ngoài vùng lành mạnh [{ETA_FRAC_LO * max_lr:.4g}, {ETA_FRAC_HI * max_lr:.4g}]")

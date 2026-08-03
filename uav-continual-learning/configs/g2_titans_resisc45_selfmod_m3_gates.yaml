@@ -41,11 +41,16 @@ memory:
   # hiện tại. tanh-bound giữ logit trong ±limit -> cổng không thoát ra biên, Eq 76 vẫn sống.
   gate_bound:
     alpha_logit_limit: 2.9444   # α ∈ [0.05, 0.95]
-    eta_logit_limit: 2.1972     # η ∈ [1e-3, 9e-3]
+    eta_logit_limit: 2.1972     # η ∈ [0.1, 0.9] — max_lr THẬT = 1.0, KHÔNG phải 1e-2
+    # comment cũ ghi [1e-3, 9e-3] là SAI 100 lần (giả định max_lr=1e-2). Log 9 task cho
+    # thấy η bò tới 0.896/0.900 = 99.5% trần -> cổng thành hằng số, hết phụ thuộc dữ liệu.
+    # Muốn η nhỏ phải DỜI TÂM (eta_logit_center), không thể chỉ đổi độ rộng.
+    alpha_logit_center: 0.0     # 0.0 = trần đối xứng quanh logit 0 (hành vi cũ)
+    eta_logit_center: 0.0       # 0.0 -> tâm η = sigmoid(0)*max_lr = 0.5
   pre_norm: true                # chuẩn hoá đầu vào memory (bổ trợ: sửa thang đo lúc khởi tạo)
   # TASK 5 — khởi tạo cổng trung tính (thư viện hỗ trợ sẵn, neural_memory.py:526-540)
   init_decay_bias: 0.0          # α khởi đầu = 0.5
-  init_adaptive_step_bias: 0.0  # η khởi đầu = 0.5*max_lr = 5e-3
+  init_adaptive_step_bias: 0.0  # η khởi đầu = 0.5*max_lr = 0.5 (KHÔNG phải 5e-3)
 
 train:
   method: titans

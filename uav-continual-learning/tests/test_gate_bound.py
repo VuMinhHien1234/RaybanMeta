@@ -55,6 +55,144 @@ def _run(mem, scale=1.0, n=3, seed=1):
     return mem.eta_alpha_stats()
 
 
+# =========================================================================================
+# G1–G5 (2026-08-03) — vá sau khi phát hiện TRẦN η LỆCH THANG 100 LẦN
+#
+# Chuyện đã xảy ra: `eta_logit_limit: 2.1972` chọn khi còn tưởng max_lr=1e-2 -> dự định
+# η ∈ [1e-3, 9e-3]. max_lr thật là 1.0 -> thực tế η ∈ [0.1, 0.9]. Log 9 task: η bò tới
+# 0.896/0.900 = 99,5% trần -> cổng thành HẰNG SỐ, hết phụ thuộc dữ liệu (mất Eq 76).
+#
+# Vì sao bộ test cũ KHÔNG bắt được: nó đo η theo PHÂN SỐ của max_lr (ETA_FRAC 0.01–0.95).
+# Trần lệch cho phân số 0.1–0.9, nằm gọn trong ngưỡng -> xanh. Đóng khung bằng phân số
+# khiến sai số thang đo trở nên vô hình. Cùng lỗ hổng với thang λ của SLDA: CÀI ĐÚNG, CHỈNH SAI.
+# =========================================================================================
+
+
+def _sig(x):
+    return 1.0 / (1.0 + math.exp(-x))
+
+
+def test_tam_0_trung_khop_ban_cu():
+    """BẤT BIẾN: tâm=0 phải cho ra ĐÚNG công thức cũ `tanh(x/L)*L`, không sai một bit."""
+    gb = {"alpha_logit_limit": 2.0, "eta_logit_limit": 2.0}
+    a = _mem(gate_bound=gb)
+    b = _mem(gate_bound={**gb, "alpha_logit_center": 0.0, "eta_logit_center": 0.0})
+    for x, y in zip(_run(a), _run(b)):
+        assert x == y, "khai báo center=0.0 tường minh đã làm đổi kết quả"
+
+
+@pytest.mark.parametrize("tam, nua", [(0.0, 2.1972), (-2.2, 2.2), (-3.0, 2.2), (-5.81, 1.10)])
+def test_bound_lech_tam_cho_dung_khoang(tam, nua):
+    """Khoảng η báo cáo phải khớp công thức sigmoid(tâm ± nửa)·max_lr."""
+    m = _mem(gate_bound={"eta_logit_limit": nua, "eta_logit_center": tam,
+                         "alpha_logit_limit": 2.9444})
+    lo, hi = m.gate_bound_range("eta")
+    assert lo == pytest.approx(_sig(tam - nua) * MAX_LR, rel=1e-9)
+    assert hi == pytest.approx(_sig(tam + nua) * MAX_LR, rel=1e-9)
+
+
+def test_lech_tam_thuc_su_keo_eta_xuong():
+    """Không chỉ báo cáo — η ĐO ĐƯỢC phải thấp hơn hẳn và nằm trong trần mới.
+
+    Khẳng định theo trần (đúng chắc chắn) chứ không theo tỉ lệ cố định, để test không phụ
+    thuộc vào việc dữ liệu ngẫu nhiên đẩy logit tới đâu.
+    """
+    cao = _mem(gate_bound={"eta_logit_limit": 2.2, "eta_logit_center": 0.0})
+    thap = _mem(gate_bound={"eta_logit_limit": 2.2, "eta_logit_center": -3.0})
+    _, e_cao, _ = _run(cao)
+    _, e_thap, _ = _run(thap)
+    lo_c, hi_c = cao.gate_bound_range("eta")
+    lo_t, hi_t = thap.gate_bound_range("eta")
+    assert lo_c <= e_cao <= hi_c and lo_t <= e_thap <= hi_t, "η ra ngoài trần đã chặn"
+    # KHÔNG đòi hai trần tách rời — chúng CHỒNG LẤN theo thiết kế:
+    #   tâm 0.0  -> [0.0998, 0.9002]
+    #   tâm −3.0 -> [0.0055, 0.3100]      (chồng nhau ở đoạn 0.0998–0.3100)
+    # Điều đúng và đủ để khẳng định là TRẦN thấp hơn hẳn, và η đo được đi theo.
+    assert hi_t < hi_c / 2, "trần trên của bản dời tâm phải thấp hơn hẳn"
+    assert e_thap < e_cao, f"dời tâm không kéo được η xuống: {e_thap:.4g} vs {e_cao:.4g}"
+
+
+def test_report_in_khoang_tuyet_doi_sau_khi_doi_tam():
+    """Báo cáo KHÔNG được giả định tâm 0 — bản cũ giả định vậy nên in sai khi dời tâm."""
+    m = _mem(gate_bound={"eta_logit_limit": 1.10, "eta_logit_center": -5.81,
+                         "alpha_logit_limit": 2.9444})
+    lo, hi = m.gate_bound_range("eta")
+    # Khớp CÔNG THỨC (chặt), rồi mới khớp Ý NGHĨA (lỏng). Bản trước tôi gõ hằng số tính tay
+    # 0.008907 — sai ở chữ số thứ 3 (đúng là 0.0089244) và test đỏ vì chính lỗi số học của tôi.
+    assert lo == pytest.approx(_sig(-5.81 - 1.10) * MAX_LR, rel=1e-9)
+    assert hi == pytest.approx(_sig(-5.81 + 1.10) * MAX_LR, rel=1e-9)
+    assert (lo, hi) == pytest.approx((1e-3, 9e-3), rel=0.05), \
+        "dời tâm −5.81 nửa 1.10 phải cho η ≈ [1e-3, 9e-3] — đúng dự định ban đầu"
+    r = m.gate_bound_report()
+    assert "tâm" in r, f"báo cáo phải nói rõ tâm đã dời, nhận: {r}"
+    assert "e-0" in r, f"khoảng η phải in dạng khoa học khi rất nhỏ, nhận: {r}"
+
+
+def test_raise_khi_khong_cai_duoc_hook():
+    """⭐ G1 — config yêu cầu chặn mà không tìm thấy cổng nào là LỖI, không phải im lặng.
+
+    Trước đây trả None -> bản vá tự tắt, log không in gì, test vẫn xanh, run vẫn tới cuối.
+    Phải để ý sự VẮNG MẶT của một dòng log mới biết — tín hiệu quá yếu để tin.
+    """
+    class _Rong(torch.nn.Module):     # memory giả, không có to_adaptive_step/to_decay_factor
+        def forward(self, x, state=None):
+            return x, None
+
+    m = TitansMemory.__new__(TitansMemory)
+    torch.nn.Module.__init__(m)
+    m.mem = _Rong()
+    with pytest.raises(RuntimeError, match="không tìm thấy"):
+        m._install_gate_bounds({"eta_logit_limit": 2.0})
+
+
+def test_khong_bat_thi_van_tra_None_khong_raise():
+    """Không khai báo gate_bound thì tuyệt đối không được raise (bất biến ngược)."""
+    m = _mem()
+    assert m._install_gate_bounds(None) is None
+    assert m._install_gate_bounds(False) is None
+    assert m.gate_bound_report() is None
+
+
+def test_gate_bound_range_tra_None_khi_tat():
+    m = _mem()
+    assert m.gate_bound_range("eta") is None and m.gate_bound_range("alpha") is None
+
+
+def test_khoang_eta_tuyet_doi_cua_config_that():
+    """⭐ TEST CHẶN ĐÚNG LỖI HÔM NAY — đo thang TUYỆT ĐỐI, không phải phân số.
+
+    Với `eta_logit_limit=2.1972, center=0` thì η ∈ [0.1, 0.9] và tâm là 0.5. Một learning-rate
+    memory tâm 0,5 là rất lớn: cổng sẽ nhanh chóng dính trần rồi thành hằng số.
+
+    Test này KHÔNG bảo cấu hình đó sai — có thể η cao đúng là thứ Titans cần trên stream trôi.
+    Nó chỉ bắt buộc con số phải được NHÌN THẤY và chọn có ý thức, thay vì là tai nạn đơn vị.
+    """
+    lo, hi = _mem(gate_bound={"eta_logit_limit": DEFAULT_ETA_LOGIT_LIMIT}).gate_bound_range("eta")
+    assert (lo, hi) == pytest.approx((0.1, 0.9), rel=1e-3), \
+        "trần η mặc định đã đổi — cập nhật comment config và kế hoạch thí nghiệm kèm theo"
+    assert _sig(0.0) * MAX_LR == pytest.approx(0.5), \
+        "tâm η của trần đối xứng luôn là 0.5·max_lr — muốn nhỏ hơn PHẢI dời tâm"
+
+
+def test_vi_tri_bao_hoa_tinh_dung_tren_so_that():
+    """Tái hiện số thật của run 9 task: η=0.8957 trần [0.1,0.9] -> 99,5%; α=0.0678 -> 2,0%.
+
+    Cả hai đều phải vượt ngưỡng GATE_SAT_FRAC=0.90 (một ở trên, một ở dưới) để sinh cảnh báo.
+    """
+    from uavcl.methods import GATE_SAT_FRAC
+
+    m = _mem(gate_bound={"eta_logit_limit": DEFAULT_ETA_LOGIT_LIMIT,
+                         "alpha_logit_limit": DEFAULT_ALPHA_LOGIT_LIMIT})
+    lo_e, hi_e = m.gate_bound_range("eta")
+    lo_a, hi_a = m.gate_bound_range("alpha")
+    frac_eta = (0.8957 - lo_e) / (hi_e - lo_e)
+    frac_alpha = (0.0678 - lo_a) / (hi_a - lo_a)
+    assert frac_eta == pytest.approx(0.995, abs=0.01)
+    assert frac_alpha == pytest.approx(0.020, abs=0.01)
+    assert frac_eta > GATE_SAT_FRAC, "η sát trần mà không bị gắn cờ"
+    assert frac_alpha < 1.0 - GATE_SAT_FRAC, "α sát sàn mà không bị gắn cờ"
+
+
 # --------------------------------------------------------------- 1) bất biến ngược
 def test_khong_bat_co_thi_khong_cai_gi():
     """Mặc định `gate_bound=None` -> không hook chặn nào, `gate_bound_report()` là None."""
@@ -178,7 +316,9 @@ def test_gate_bound_gradient_khong_chet():
 
 def test_gate_bound_nhan_limit_tuy_chinh():
     mem = _mem(gate_bound={"alpha_logit_limit": 1.0, "eta_logit_limit": 1.0})
-    assert mem._gate_bound == {"eta": 1.0, "alpha": 1.0}
+    # G2 (2026-08-03): `_gate_bound` giờ lưu (nửa, tâm) chứ không phải riêng nửa,
+    # vì trần phải lệch tâm được. Không khai báo center -> tâm = 0.0 = hành vi cũ.
+    assert mem._gate_bound == {"eta": (1.0, 0.0), "alpha": (1.0, 0.0)}
     _mo_phong_troi(mem, 60.0)
     _, _, alpha = _run(mem)
     lo, hi = 1 / (1 + math.exp(1.0)), 1 / (1 + math.exp(-1.0))

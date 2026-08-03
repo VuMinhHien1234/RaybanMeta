@@ -125,6 +125,13 @@ class TitansMemory(nn.Module):
         Hệ số góc tại 0 đúng bằng 1 (gần như identity ở vùng giữa), bão hoà mượt về ±limit.
         Gradient không bao giờ chết hẳn -> cổng vẫn PHỤ THUỘC DỮ LIỆU, chỉ không thoát ra biên.
 
+        G2 (2026-08-03) — TRẦN PHẢI LỆCH TÂM ĐƯỢC. Công thức đối xứng `tanh(x/L)·L` LUÔN có
+        tâm ở logit 0, tức η = sigmoid(0)·max_lr = 0,5 — bất kể L bằng bao nhiêu. Nên muốn η
+        nhỏ thì KHÔNG THỂ chỉ chỉnh độ rộng; đây là hạn chế cấu trúc chứ không phải chọn sai
+        hằng số. Dạng tổng quát:
+            logit_bounded = tanh((x − tâm) / nửa) · nửa + tâm
+        `tâm = 0` cho lại đúng công thức cũ (bất biến với mọi kết quả đã chạy).
+
         cfg=None/False -> không cài gì (hành vi cũ bất biến).
         """
         if not cfg:
@@ -132,40 +139,68 @@ class TitansMemory(nn.Module):
         cfg = {} if cfg is True else dict(cfg)
         a_lim = float(cfg.get("alpha_logit_limit", DEFAULT_ALPHA_LOGIT_LIMIT))
         e_lim = float(cfg.get("eta_logit_limit", DEFAULT_ETA_LOGIT_LIMIT))
+        a_tam = float(cfg.get("alpha_logit_center", 0.0))
+        e_tam = float(cfg.get("eta_logit_center", 0.0))
         if a_lim <= 0 or e_lim <= 0:
             raise ValueError("gate_bound.*_logit_limit phải > 0")
 
-        def _make(limit):
+        def _make(nua, tam=0.0):
             def _bound_hook(_m, _inp, out):
-                if isinstance(out, tuple):
-                    t = out[0]
-                    if not torch.is_tensor(t):
-                        return None
-                    return (torch.tanh(t / limit) * limit,) + tuple(out[1:])
-                if not torch.is_tensor(out):
+                t = out[0] if isinstance(out, tuple) else out
+                if not torch.is_tensor(t):
                     return None
-                return torch.tanh(out / limit) * limit
+                # tâm=0 -> tanh(t/nua)*nua, trùng khít công thức cũ (không thêm phép tính nào)
+                b = torch.tanh((t - tam) / nua) * nua + tam if tam else torch.tanh(t / nua) * nua
+                return (b,) + tuple(out[1:]) if isinstance(out, tuple) else b
             return _bound_hook
 
         installed = {}
         if hasattr(self.mem, "to_adaptive_step"):
-            self.mem.to_adaptive_step.register_forward_hook(_make(e_lim)); installed["eta"] = e_lim
+            self.mem.to_adaptive_step.register_forward_hook(_make(e_lim, e_tam))
+            installed["eta"] = (e_lim, e_tam)
         if hasattr(self.mem, "to_decay_factor"):
-            self.mem.to_decay_factor.register_forward_hook(_make(a_lim)); installed["alpha"] = a_lim
-        return installed or None
+            self.mem.to_decay_factor.register_forward_hook(_make(a_lim, a_tam))
+            installed["alpha"] = (a_lim, a_tam)
+        # G1 (2026-08-03) — KHÔNG được im lặng bỏ qua. Trước đây `return installed or None` khiến
+        # bản vá tự tắt khi thư viện đổi tên thuộc tính: config vẫn ghi gate_bound, test vẫn xanh,
+        # run vẫn chạy tới cuối — mà cổng KHÔNG hề bị chặn. Phải để ý sự VẮNG MẶT của một dòng log
+        # mới phát hiện được. Config yêu cầu chặn mà không chặn nổi là LỖI, không phải cảnh báo.
+        if not installed:
+            raise RuntimeError(
+                "memory.gate_bound được yêu cầu nhưng không tìm thấy `to_adaptive_step` / "
+                "`to_decay_factor` trên đối tượng memory — titans-pytorch đã đổi tên thuộc tính? "
+                f"(kiểu memory: {type(self.mem).__name__})")
+        return installed
+
+    def gate_bound_range(self, ten: str):
+        """Khoảng (lo, hi) THẬT của cổng `ten` ∈ {'alpha','eta'} sau khi chặn; None nếu tắt.
+
+        Tính từ (nửa, tâm) chứ KHÔNG giả định tâm 0 — bản cũ giả định vậy nên khi dời tâm sẽ
+        in sai. `methods.py` dùng hàm này để biết mốc mà cảnh báo bão hoà (G3).
+        """
+        import math
+        if not self._gate_bound or ten not in self._gate_bound:
+            return None
+        nua, tam = self._gate_bound[ten]
+        sig = lambda x: 1.0 / (1.0 + math.exp(-x))          # noqa: E731
+        lo, hi = sig(tam - nua), sig(tam + nua)
+        if ten == "eta":                                     # η = sigmoid(logit) * max_lr
+            lo, hi = lo * self._eta_max_lr, hi * self._eta_max_lr
+        return lo, hi
 
     def gate_bound_report(self):
         """Mô tả trần cổng đang áp (None nếu tắt) — để in 1 lần lúc dựng model."""
         if not self._gate_bound:
             return None
-        import math
         parts = []
-        if "alpha" in self._gate_bound:
-            L = self._gate_bound["alpha"]; lo = 1 / (1 + math.exp(L))
-            parts.append(f"α∈[{lo:.3f},{1 - lo:.3f}] (|logit|≤{L:.4g})")
-        if "eta" in self._gate_bound:
-            L = self._gate_bound["eta"]; lo = 1 / (1 + math.exp(L))
-            parts.append(f"η∈[{lo * self._eta_max_lr:.2e},{(1 - lo) * self._eta_max_lr:.2e}] (|logit|≤{L:.4g})")
+        for ten, ky_hieu, dinh in (("alpha", "α", "{:.3f}"), ("eta", "η", "{:.3e}")):
+            r = self.gate_bound_range(ten)
+            if r is None:
+                continue
+            nua, tam = self._gate_bound[ten]
+            tam_str = f", tâm {tam:+.4g}" if tam else ""
+            parts.append(f"{ky_hieu}∈[{dinh.format(r[0])},{dinh.format(r[1])}] "
+                         f"(nửa {nua:.4g}{tam_str})")
         return "  ".join(parts)
 
     def _install_eta_alpha_probes(self) -> None:
