@@ -110,6 +110,21 @@ def main() -> int:
             holdout=int(os_cfg.get("holdout", 5)),
         )
         print(f"[openset] class GIỮ LẠI (không train, làm mẫu lạ): {holdout_classes}")
+    elif str(cfg["data"].get("stream_type", "class")).lower() == "domain":
+        # D5 — DOMAIN-incremental: mọi task đủ MỌI lớp, chỉ khác ĐIỀU KIỆN (do drift transform).
+        # Tách hẳn khỏi class-incremental để khi accuracy tụt còn biết là do quên lớp hay do trôi.
+        from uavcl.data.stream import build_domain_stream
+
+        stream = build_domain_stream(
+            source.splits["train"].labels,
+            source.splits["val"].labels,
+            source.splits["test"].labels,
+            num_classes=source.num_classes,
+            num_tasks=int(cfg["data"]["num_tasks"]),
+            seed=seed,
+        )
+        print(f"[stream] DOMAIN-incremental: {len(stream)} task × {source.num_classes} lớp "
+              "(mọi task đủ mọi lớp; khác nhau ở ĐIỀU KIỆN quan sát)")
     else:
         stream = build_stream(
             source.splits["train"].labels,
@@ -121,6 +136,7 @@ def main() -> int:
             shuffle_classes=bool(cfg["data"].get("shuffle_classes", True)),
         )
     print(describe_stream(stream, source.class_names))
+    cfg["data"].setdefault("seed", seed)           # ↳ drift dùng seed này để tái lập nhiễu
     loaders = build_task_loaders(source, stream, cfg["data"])
 
     # --- model + method ---
@@ -159,9 +175,16 @@ def main() -> int:
             # B2 ablation: streaming (mặc định) | identity (= NCM) | frozen (Σ đóng băng)
             cov_mode=str(slda_cfg.get("cov_mode", "streaming")),
             cov_freeze_after=int(slda_cfg.get("cov_freeze_after", 1)),
+            stats_dtype=str(slda_cfg.get("stats_dtype", "float64")),
+            # D1 — hệ số QUÊN. 1.0 = không quên = hành vi cũ.
+            decay_mean=float(slda_cfg.get("decay_mean", 1.0)),
+            decay_cov=float(slda_cfg.get("decay_cov", 1.0)),
         ).to(device)
         print(f"[slda] shrinkage={model.shrinkage:g} cov_mode={model.cov_mode}"
-              + (f" cov_freeze_after={model.cov_freeze_after}" if model.cov_mode == "frozen" else ""))
+              + (f" cov_freeze_after={model.cov_freeze_after}" if model.cov_mode == "frozen" else "")
+              + f" dtype={model.stats_dtype}"
+              + (f" λ_μ={model.decay_mean:g} λ_Σ={model.decay_cov:g}"
+                 if (model.decay_mean < 1 or model.decay_cov < 1) else " λ=1 (không quên)"))
     else:
         model = ContinualClassifier(backbone, feat_dim, source.num_classes, head=head_kind).to(device)
     method = build_method(method_name, cfg)

@@ -127,6 +127,68 @@ def build_stream(
     return stream                               # ↳ Trả về danh sách TaskSpec = "kịch bản" học liên tục.
 
 
+def chia_deu_theo_lop(
+    labels: Sequence[int], num_tasks: int, seed: int = 0
+) -> List[List[int]]:
+    """Chia MỌI mẫu thành `num_tasks` phần, mỗi phần có đủ mọi lớp với số lượng cân bằng.
+
+    Khác `indices_by_task` (chia theo LỚP): ở đây chia theo MẪU, mọi task đều thấy đủ 45 lớp.
+    Dùng cho stream domain-incremental — task khác nhau ở ĐIỀU KIỆN, không ở tập lớp.
+    """
+    theo_lop: Dict[int, List[int]] = {}
+    for i, y in enumerate(labels):
+        theo_lop.setdefault(int(y), []).append(i)
+    ra: List[List[int]] = [[] for _ in range(num_tasks)]
+    rng = random.Random(seed)
+    for c in sorted(theo_lop):                     # ↳ sorted -> thứ tự cố định, tái lập được
+        idxs = theo_lop[c][:]
+        rng.shuffle(idxs)
+        for k, i in enumerate(idxs):               # ↳ rải vòng tròn -> mọi task đều có lớp c
+            ra[k % num_tasks].append(i)
+    for phan in ra:
+        phan.sort()
+    return ra
+
+
+def build_domain_stream(
+    train_labels: Sequence[int],
+    val_labels: Sequence[int],
+    test_labels: Sequence[int],
+    num_classes: int,
+    num_tasks: int,
+    seed: int = 0,
+) -> List[TaskSpec]:
+    """Stream DOMAIN-incremental: mọi task có ĐỦ mọi lớp, chỉ khác ĐIỀU KIỆN quan sát.
+
+    Vì sao phải tách khỏi `build_stream` (class-incremental): nếu để lẫn "lớp mới" và
+    "điều kiện trôi" trong cùng một stream thì khi accuracy tụt, KHÔNG tách được nguyên
+    nhân là *quên lớp* hay *trôi điều kiện* — kết quả không diễn giải được.
+
+    Việc áp trôi nằm ở `data/drift.py` + `loaders.py`; hàm này chỉ lo chia mẫu.
+
+    Ngữ nghĩa ma trận accuracy đổi theo:
+        R[i][j] = accuracy ở ĐIỀU KIỆN j, sau khi đã học tới ĐIỀU KIỆN i
+        - đường chéo  R[i][i] : hoạt động trong điều kiện HIỆN TẠI  <- chỉ số chính
+        - dưới chéo   R[i][j] : quay lại điều kiện CŨ có còn chạy không
+    Nên "forgetting" ở đây = *mất khả năng hoạt động ở điều kiện cũ*, không phải quên lớp.
+    """
+    if num_tasks < 1:
+        raise ValueError(f"num_tasks phải >= 1 (nhận {num_tasks})")
+    moi_lop = sorted(set(int(y) for y in train_labels))
+    tr = chia_deu_theo_lop(train_labels, num_tasks, seed=seed)
+    va = chia_deu_theo_lop(val_labels, num_tasks, seed=seed + 1)
+    te = chia_deu_theo_lop(test_labels, num_tasks, seed=seed + 2)
+    stream = [
+        TaskSpec(task_id=t, classes=moi_lop,       # ↳ MỌI task đều "dạy" đủ mọi lớp
+                 train_idx=tr[t], val_idx=va[t], test_idx=te[t])
+        for t in range(num_tasks)
+    ]
+    for spec in stream:
+        if not spec.train_idx or not spec.test_idx:
+            raise ValueError(f"Task {spec.task_id} rỗng — num_tasks quá lớn so với số mẫu?")
+    return stream
+
+
 def build_stream_with_holdout(
     train_labels: Sequence[int],
     val_labels: Sequence[int],

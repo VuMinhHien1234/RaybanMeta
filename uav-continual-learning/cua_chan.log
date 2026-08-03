@@ -1,0 +1,32 @@
+.............................................                            [100%]
+45 passed in 0.84s
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+
+thiết bị=mps · severity=1.0 · mode=linear · jitter=0.15
+
+  đã lưu troi_mau.png — 9 mức trôi, trái sang phải 0% -> 100%
+  NHÌN BẰNG MẮT: ảnh cuối phải trông như 'cùng cảnh, chiều muộn nhiều sương',
+  KHÔNG phải như ảnh hỏng/nhiễu trắng. Trông hỏng = severity quá cao.
+
+
+NCM trên feature đóng băng (2000 mẫu dựng prototype, 2000 mẫu test)
+
+   task   mức trôi    NCM acc    tụt so với t0
+  ------------------------------------------------
+      0         0%     0.6900                 
+      1        12%     0.6915           +0.15đ
+      2        25%     0.6885           -0.15đ
+      3        38%     0.6895           -0.05đ
+      4        50%     0.6780           -1.20đ
+      5        62%     0.6555           -3.45đ
+      6        75%     0.6140           -7.60đ
+      7        88%     0.5885          -10.15đ
+      8       100%     0.5310          -15.90đ
+
+============================================================
+  ✅ ĐẠT — NCM tụt từ 0.6900 xuống 0.5310 (−15.9 điểm), nằm trong vùng đề nghị.
+     Có chỗ cho λ thể hiện, mà feature chưa vỡ. CHẠY ĐƯỢC campaign.
+============================================================
+
+  Nhớ: severity đang dùng = 1.0 — ghi giá trị này vào 5 config arm trước khi chạy.
+

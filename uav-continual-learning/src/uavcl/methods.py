@@ -412,6 +412,22 @@ class SLDA(FineTune):
             print(f"[slda] cov_mode={r['cov_mode']} | bộ nhớ = {r['total_MB']:.3f} MB "
                   f"(gram {r['gram_DxD'] / 1e6:.3f} + means {r['feat_sum_CxD'] / 1e6:.3f} "
                   f"+ cache {r['cache_w_b'] / 1e6:.3f})")
+        # D2: cửa sổ nhớ hiệu dụng — bằng chứng λ chạy đúng (vai trò như trace_gates với Titans)
+        if hasattr(model, "window_report"):
+            w = model.window_report()
+            if w["decay_mean"] < 1.0 or w["decay_cov"] < 1.0:
+                print(f"[slda] λ_μ={w['decay_mean']:g} λ_Σ={w['decay_cov']:g} | "
+                      f"cửa sổ nhớ: n_c trung bình = {w['n_c_trung_binh']:.1f} "
+                      f"(kỳ vọng 1/(1−λ_μ) = {w['ky_vong']:.0f})")
+                # Chỉ cảnh báo khi đã đủ mẫu để hội tụ — task đầu luôn thấp hơn kỳ vọng.
+                if w["n_c_trung_binh"] > 0.5 * w["ky_vong"]:
+                    lech = abs(w["n_c_trung_binh"] - w["ky_vong"]) / max(w["ky_vong"], 1e-9)
+                    if lech > 0.30:
+                        print(f"[slda]   ⚠️ n_c lệch {lech * 100:.0f}% so với kỳ vọng "
+                              "— nghi cài sai chỗ phân rã")
+            else:
+                print(f"[slda] λ = 1.0 (không quên) | n_c trung bình = "
+                      f"{w['n_c_trung_binh']:.0f}, tăng vô hạn theo thời gian")
 
     def footprint_floats(self, model) -> int:
         return int(model.extra_floats()) if hasattr(model, "extra_floats") else 0

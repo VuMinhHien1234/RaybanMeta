@@ -73,9 +73,30 @@ def build_task_loaders(
     tf_train = build_transforms(image_size, train=True)   # ↳ Transform cho train (có aug).
     tf_eval = build_transforms(image_size, train=False)   # ↳ Transform cho val/test (không aug).
 
-    def dl(split_name: str, idx: List[int], train: bool) -> DataLoader:
+    # --- D6: TRÔI điều kiện quan sát (mặc định TẮT -> đi đúng đường cũ, bất biến) --------
+    # Khi bật, mỗi task có transform RIÊNG với mức trôi tăng dần. Bản gốc dựng transform
+    # MỘT LẦN cho mọi task (2 dòng trên), nên phải rẽ nhánh ở đây.
+    drift_cfg = dict(data_cfg.get("drift") or {})
+    drift_bat = bool(drift_cfg.get("enabled", False))
+    ap_cho = set(drift_cfg.get("apply_to", ["train", "val", "test"]))
+    seed_drift = int(data_cfg.get("seed", 0))
+    if drift_bat:
+        from .drift import bang_muc_troi, build_drift_transform
+        print(f"[drift] BẬT · mode={drift_cfg.get('mode', 'linear')} "
+              f"severity={drift_cfg.get('severity', 1.0)} "
+              f"jitter={drift_cfg.get('jitter', 0.15)} · áp cho {sorted(ap_cho)}")
+        print(f"[drift] mức từng task: {bang_muc_troi(len(stream), drift_cfg)}")
+
+    def tf_cua_task(t: int, split_name: str, train: bool):
+        """Transform của task t. Không bật drift -> trả đúng transform cũ."""
+        if not drift_bat or split_name not in ap_cho:
+            return tf_train if train else tf_eval
+        return build_drift_transform(image_size, t, len(stream), drift_cfg,
+                                     train=train, seed=seed_drift)
+
+    def dl(split_name: str, idx: List[int], train: bool, t: int) -> DataLoader:
         # ↳ Hàm phụ dựng 1 DataLoader từ tên split + danh sách chỉ số.
-        ds = TaskDataset(source.splits[split_name], idx, tf_train if train else tf_eval)
+        ds = TaskDataset(source.splits[split_name], idx, tf_cua_task(t, split_name, train))
         return DataLoader(
             ds,
             batch_size=batch_size,
@@ -86,12 +107,12 @@ def build_task_loaders(
         )
 
     out = []
-    for spec in stream:                            # ↳ Với mỗi task trong stream...
+    for t, spec in enumerate(stream):              # ↳ Với mỗi task trong stream...
         out.append(
             {
-                "train": dl("train", spec.train_idx, train=True),   # ↳ ...tạo 3 loader tương ứng.
-                "val": dl("val", spec.val_idx, train=False),
-                "test": dl("test", spec.test_idx, train=False),
+                "train": dl("train", spec.train_idx, True, t),   # ↳ ...tạo 3 loader tương ứng.
+                "val": dl("val", spec.val_idx, False, t),
+                "test": dl("test", spec.test_idx, False, t),
             }
         )
     return out                                     # ↳ Danh sách: phần tử t = bộ loader của task t.
