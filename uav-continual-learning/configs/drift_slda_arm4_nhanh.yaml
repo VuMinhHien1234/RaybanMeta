@@ -69,5 +69,9 @@ log:
 slda:
   shrinkage: 0.0001
   cov_mode: streaming
-  decay_mean: 0.99
-  decay_cov: 0.999
+  # Chinh lai 2026-08-03: n_c=33, trai 0,7 task — quen nhanh hon 1 task.
+  # lam_Sigma doi 0.999 -> 0.9999: ban cu doi CA HAI lambda so voi arm 3 nen khong quy duoc
+  # chenh lech cho mu hay Sigma. Co dinh lam_Sigma o arm 2-4 -> quet 1 bien SACH tren lam_mu.
+  # (Them nua: lam_Sigma=0.999 chi con 1.000 mau hieu dung cho ma tran 384x384 — hoi thieu.)
+  decay_mean: 0.97
+  decay_cov: 0.9999

@@ -69,5 +69,7 @@ log:
 slda:
   shrinkage: 0.0001
   cov_mode: streaming
-  decay_mean: 0.999
+  # Chinh lai 2026-08-03: n_c=99, trai 2,1 task. Troi dich 12,5%/task nen cua so ~2 task
+  # la cho hop ly nhat de bam theo ma van du mau uoc luong mu_c (384 chieu).
+  decay_mean: 0.99
   decay_cov: 0.9999

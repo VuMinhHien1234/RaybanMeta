@@ -416,15 +416,22 @@ class SLDA(FineTune):
         if hasattr(model, "window_report"):
             w = model.window_report()
             if w["decay_mean"] < 1.0 or w["decay_cov"] < 1.0:
+                # So với kỳ vọng HỮU HẠN MẪU (1−λ^m)/(1−λ), KHÔNG phải tiệm cận 1/(1−λ).
+                # Tiệm cận chỉ đạt được sau hàng nghìn lần gặp; RESISC45 chỉ cho 420 lần/lớp
+                # trong cả 9 task, nên so với tiệm cận là so nhầm mốc và báo động giả.
                 print(f"[slda] λ_μ={w['decay_mean']:g} λ_Σ={w['decay_cov']:g} | "
-                      f"cửa sổ nhớ: n_c trung bình = {w['n_c_trung_binh']:.1f} "
-                      f"(kỳ vọng 1/(1−λ_μ) = {w['ky_vong']:.0f})")
-                # Chỉ cảnh báo khi đã đủ mẫu để hội tụ — task đầu luôn thấp hơn kỳ vọng.
-                if w["n_c_trung_binh"] > 0.5 * w["ky_vong"]:
-                    lech = abs(w["n_c_trung_binh"] - w["ky_vong"]) / max(w["ky_vong"], 1e-9)
-                    if lech > 0.30:
-                        print(f"[slda]   ⚠️ n_c lệch {lech * 100:.0f}% so với kỳ vọng "
-                              "— nghi cài sai chỗ phân rã")
+                      f"n_c trung bình = {w['n_c_trung_binh']:.1f} "
+                      f"(kỳ vọng {w['ky_vong_huu_han']:.1f} sau {w['so_lan_gap_tb']:.0f} lần gặp; "
+                      f"tiệm cận {w['ky_vong']:.0f})")
+                print(f"[slda]   giữ {w['ty_le_giu'] * 100:.1f}% trí nhớ so với λ=1 "
+                      f"— cửa sổ trải {w['ky_vong_huu_han'] / max(w['so_lan_gap_tb'] / 9, 1e-9):.1f} task")
+                lech = abs(w["n_c_trung_binh"] - w["ky_vong_huu_han"]) / max(w["ky_vong_huu_han"], 1e-9)
+                if lech > 0.05:
+                    print(f"[slda]   ⚠️ n_c lệch {lech * 100:.1f}% so với lý thuyết "
+                          "— nghi cài sai chỗ phân rã")
+                if w["ty_le_giu"] > 0.90:
+                    print(f"[slda]   ⚠️ giữ >90% trí nhớ — λ_μ quá gần 1 so với cỡ dữ liệu, "
+                          "arm này sẽ gần trùng λ=1")
             else:
                 print(f"[slda] λ = 1.0 (không quên) | n_c trung bình = "
                       f"{w['n_c_trung_binh']:.0f}, tăng vô hạn theo thời gian")

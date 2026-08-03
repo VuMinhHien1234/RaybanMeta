@@ -69,5 +69,7 @@ log:
 slda:
   shrinkage: 0.0001
   cov_mode: streaming
-  decay_mean: 0.9999
+  # Chinh lai 2026-08-03: 0.9999 giu toi 97,9% tri nho cua lam=1 (moi lop chi duoc gap
+  # 420 lan trong ca 9 task) -> trung arm 1, phi 3 run. 0.999 -> n_c=343, trai 7,4 task.
+  decay_mean: 0.999
   decay_cov: 0.9999

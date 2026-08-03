@@ -114,6 +114,11 @@ class SLDAClassifier(nn.Module):
         # giữ được ĐỒNG THỜI "Σ đúng" và "không quên lớp cũ".
         self.register_buffer("feat_sum_g", torch.zeros(num_classes, feat_dim, dtype=dt))
         self.register_buffer("count_g", torch.zeros(num_classes, dtype=dt))
+        # Số lần gặp THẬT, không bao giờ phân rã — chỉ để CHẨN ĐOÁN, không tham gia tính toán.
+        # Vì sao cần: n_c chỉ hội tụ về 1/(1−λ) sau HÀNG NGHÌN lần gặp. Với RESISC45 mỗi lớp
+        # chỉ được gặp 420 lần trong cả 9 task, nên so với tiệm cận là so nhầm mốc (đo 131 mà
+        # "kỳ vọng" in ra 1000 -> tưởng hỏng). Mốc đúng là (1 − λ^m)/(1 − λ) với m lần gặp.
+        self.register_buffer("count_raw", torch.zeros(num_classes, dtype=dt))
         self._cache_w = None       # (D, C) = Λ μ_cᵀ — cache để không nghịch đảo mỗi batch
         self._cache_b = None       # (C,)   = −½ μ_c Λ μ_c
         self._cache_version = -1   # bump theo _version mỗi lần update
@@ -162,6 +167,7 @@ class SLDAClassifier(nn.Module):
 
         self.feat_sum.index_add_(0, ys, f)
         self.count.index_add_(0, ys, torch.ones_like(ys, dtype=self.count.dtype))
+        self.count_raw.index_add_(0, ys, torch.ones_like(ys, dtype=self.count_raw.dtype))
         self._version += 1
 
     @torch.no_grad()
@@ -261,11 +267,23 @@ class SLDAClassifier(nn.Module):
         hoặc phân rã nhầm chỗ.
         """
         seen = self.count[self.count > 0]
+        raw = self.count_raw[self.count_raw > 0]
+        m = float(raw.mean()) if raw.numel() else 0.0        # số lần gặp trung bình mỗi lớp
+        lam = self.decay_mean
+        # Mốc ĐÚNG: tổng cấp số nhân CÓ HẠN sau m lần gặp. Tiệm cận 1/(1−λ) chỉ là giới hạn
+        # khi m -> ∞; dùng nó làm mốc khi m nhỏ sẽ báo động giả (xem chú thích ở count_raw).
+        if lam < 1.0:
+            ky_vong_huu_han = (1.0 - lam ** m) / (1.0 - lam) if m > 0 else 0.0
+        else:
+            ky_vong_huu_han = m
         return {
             "decay_mean": self.decay_mean,
             "decay_cov": self.decay_cov,
             "n_c_trung_binh": float(seen.mean()) if seen.numel() else 0.0,
             "n_c_max": float(seen.max()) if seen.numel() else 0.0,
-            "ky_vong": (1.0 / (1.0 - self.decay_mean)) if self.decay_mean < 1.0 else float("inf"),
+            "ky_vong": (1.0 / (1.0 - lam)) if lam < 1.0 else float("inf"),   # tiệm cận
+            "ky_vong_huu_han": ky_vong_huu_han,                              # mốc để so
+            "so_lan_gap_tb": m,
+            "ty_le_giu": (ky_vong_huu_han / m) if m > 0 else 0.0,   # so với λ=1 -> ~1 là gần như không quên
             "so_lop_da_thay": int(seen.numel()),
         }

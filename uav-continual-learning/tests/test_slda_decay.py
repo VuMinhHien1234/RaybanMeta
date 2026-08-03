@@ -148,6 +148,46 @@ def test_window_report_khop_so_do():
     assert r["so_lop_da_thay"] == 1
 
 
+@pytest.mark.parametrize("lam, m", [(0.999, 140), (0.999, 420), (0.99, 420), (0.97, 420)])
+def test_ky_vong_huu_han_moi_la_moc_dung(lam, m):
+    """⭐ Mốc so sánh phải là (1−λ^m)/(1−λ), KHÔNG phải tiệm cận 1/(1−λ).
+
+    Lỗi 2026-08-03: log in "kỳ vọng 1000" trong khi đo được 131 -> tưởng cài sai. Thực ra
+    λ đúng hoàn hảo; chỉ là 1/(1−λ) là giới hạn khi m→∞, mà RESISC45 chỉ cho m=420 lần
+    gặp mỗi lớp. So nhầm mốc thì hoặc báo động giả, hoặc bỏ lọt lỗi thật.
+    """
+    m_obj = _mk(decay_mean=lam)
+    for i in range(m):
+        m_obj.update(*_batch(0, n=1, seed=i))
+    r = m_obj.window_report()
+    ky_vong = (1 - lam ** m) / (1 - lam)
+    assert r["ky_vong_huu_han"] == pytest.approx(ky_vong, rel=1e-9)
+    assert r["n_c_trung_binh"] == pytest.approx(ky_vong, rel=0.01)
+    assert r["so_lan_gap_tb"] == pytest.approx(float(m))
+
+
+def test_ty_le_giu_bat_duoc_lambda_vo_dung():
+    """λ_μ=0.9999 với m=420 giữ ~98% trí nhớ -> arm đó gần trùng λ=1, phải phát hiện được."""
+    m = _mk(decay_mean=0.9999)
+    for i in range(420):
+        m.update(*_batch(0, n=1, seed=i))
+    assert m.window_report()["ty_le_giu"] > 0.95      # cờ đỏ: λ quá gần 1 so với cỡ dữ liệu
+
+    m2 = _mk(decay_mean=0.99)
+    for i in range(420):
+        m2.update(*_batch(0, n=1, seed=i))
+    assert m2.window_report()["ty_le_giu"] < 0.30      # thực sự có quên
+
+
+def test_count_raw_khong_bao_gio_phan_ra():
+    """count_raw chỉ để chẩn đoán — phải là số đếm thô, không đụng tới λ."""
+    m = _mk(decay_mean=0.9, decay_cov=0.9)
+    for i in range(50):
+        m.update(*_batch(0, n=2, seed=i))
+    assert float(m.count_raw[0]) == pytest.approx(100.0)
+    assert float(m.count[0]) < 20.0                    # bản có phân rã thì nhỏ hơn hẳn
+
+
 def test_window_report_lambda_1_la_vo_han():
     assert _mk().window_report()["ky_vong"] == float("inf")
 
