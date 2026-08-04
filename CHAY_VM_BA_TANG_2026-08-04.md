@@ -12,6 +12,21 @@ Ngày 2026-08-04 · sau `DA_TRIEN_KHAI_SUA_2026-08-04.md` (nhóm A + P + DL1 + M
 | Máy | CPU `e2-standard-8` (như mọi campaign trước) |
 | Repo | `https://github.com/VuMinhHien1234/RaybanMeta.git` |
 
+## ⚙️ Làm MỘT LẦN trước khi copy-paste bất cứ lệnh nào
+
+zsh ở chế độ tương tác **không hiểu `#` là chú thích** (khác bash). Dán một dòng có chú thích
+đuôi vào Terminal sẽ ra `ERROR: unrecognized arguments: # đổi tên/zone...`. Bật một lần cho
+xong, áp dụng cho mọi file hướng dẫn trong dự án:
+
+```bash
+echo 'setopt interactive_comments' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Chưa bật thì khi dán nhớ **cắt bỏ phần từ dấu `#` trở đi**.
+
+---
+
 **Điểm khác mọi lần trước — đọc trước khi làm gì:** campaign này **KHÔNG chạy được bằng một
 vòng for duy nhất**. Có 2 tham số phải hiệu chỉnh TAY *giữa chừng*, đọc từ log của bước trước:
 
@@ -123,11 +138,15 @@ gcloud compute instances list
 
 ## B2. Bật máy cũ
 
+Thay `uavcl-slda` / `us-east1-b` bằng **đúng NAME và ZONE mà B1 in ra** — `uavcl-slda` chỉ là
+tên của campaign trước, rất có thể đã xoá:
+
 ```bash
-gcloud compute instances start uavcl-slda --zone=us-east1-b     # đổi tên/zone theo B1
+gcloud compute instances start uavcl-slda --zone=us-east1-b
 ```
 
-Đợi ~30 giây rồi SSH.
+Đợi ~30 giây rồi SSH. Báo `was not found` = tên/zone sai hoặc máy đã xoá → quay lại B1, hoặc
+tạo mới ở B2b.
 
 ## B2b. Hoặc tạo máy mới
 
@@ -209,22 +228,45 @@ Hai dòng in đậm quan trọng nhất. Ra `0` → quay lại C1, đừng chạ
 
 ---
 
-# PHẦN D — ⛔ Smoke test trên VM (~15 phút, bắt buộc)
+# PHẦN D — ⛔ Smoke test trên VM (~40–60 phút, bắt buộc)
 
-Ba chuyến, một seed. Không xem accuracy — xem **đường ống có nối đúng không**.
+**Năm** chuyến, một seed. Không xem accuracy — xem **đường ống có nối đúng không**.
+
+⚠️ **Tối thiểu là 5 chuyến, không được ít hơn.** Với `chu_ky=4` thì lịch bay chỉ bắt đầu lặp
+điều kiện ở chuyến thứ 4 (`c3:50%/m1(lần 2)`). Đặt `num_tasks=3` sẽ bị guard chặn ngay:
+
+```
+ValueError: Lịch bay KHÔNG có chuyến nào lặp lại chế độ điều kiện cũ
+            -> không đo được 'Lợi ích khi quay lại' (mục tiêu O3)
+```
+
+Đó là guard chạy ĐÚNG (chết sớm thay vì chạy xong mới biết O3 rỗng), không phải bug.
+
+| `num_tasks` | Lịch | Bank thấy gì |
+|---|---|---|
+| 3 | c0 c1 c2 | ⛔ bị chặn — không có lặp |
+| 4 | + `c3:m1(lần 2)` | 1 lần GẶP LẠI |
+| **5** | + `c4:m0` (chế độ MỚI với bank) | 1 lần GẶP LẠI **+ 1 lần phải KHÔNG khớp** ← chọn cái này |
+
+Chọn 5 vì nó kiểm cả hai chiều: bank phải nhận ra m1 ở c3, và phải **không** nhận nhầm m0 ở
+c4 thành m1/m2 — đúng cái bẫy ⭐ của M4.
 
 ```bash
 cd ~/RaybanMeta/uav-continual-learning
 
-.venv/bin/python scripts/mo_phong_ba_tang.py          # 10 s, không cần dataset
+.venv/bin/python scripts/mo_phong_ba_tang.py
 
 .venv/bin/python scripts/run_g1.py \
   --config configs/revisit_U2_nganhang.yaml \
-  --set seed=0 data.num_tasks=3 log.dir=./artifacts_smoke_batang \
+  --set seed=0 data.num_tasks=5 log.dir=./artifacts_smoke_batang \
   2>&1 | tee run_smoke_batang.log
 ```
 
 Lần đầu tải dataset ~630 MB — chậm, bình thường.
+
+**Bấm giờ chuyến đầu.** `test_chung` bắt mỗi chuyến chấm trên đủ 6300 ảnh test, cộng ~6300
+ảnh train → ~12.600 lượt forward ViT-S mỗi chuyến. Đo thời gian một chuyến rồi **× 12 × 9 run**
+để ra ETA thật của track chính, thay cho con số ước lượng ~1,1–1,4 h/run ở đầu file.
 
 ## Năm dòng phải thấy trong log
 
@@ -250,7 +292,53 @@ Dọn sạch trước khi chạy thật: `rm -rf artifacts_smoke_batang run_smok
 
 ---
 
-# PHẦN E — Chạy thật, ĐÚNG THỨ TỰ
+# PHẦN E — Chạy thật
+
+## E0. ⚡ Cách nhanh: MỘT lệnh, để qua đêm
+
+`scripts/chay_dem_ba_tang.sh` chạy hết E1→E5, **tự làm cả hai chỗ trước đây phải hiệu chỉnh
+tay** và tự dừng ở hai cửa chặn:
+
+```bash
+cd ~/RaybanMeta/uav-continual-learning
+tmux new -s dem
+nohup bash scripts/chay_dem_ba_tang.sh > dem.log 2>&1 &
+tail -f dem.log
+```
+
+Rời tmux: `Ctrl+B` rồi `D`. Tắt Mac không sao.
+
+| Nó tự làm gì | Cách làm |
+|---|---|
+| `tang_nhanh.kieu` | đọc `ket_luan_t1` trong `artifacts_t1/t1_t2.json` → `TRUC_CHUNG` thì `truc` + nối `truc_json`, còn lại giữ `day_du` |
+| `ngan_hang.nguong` | `dich_dieu_kien / 4` lấy từ chính file T1 (giải thích ở E4) |
+| ⛔ cửa chặn T1 | `KHONG_CO_TRUC` → thoát mã 2, không chạy gì thêm |
+| ⛔ cửa chặn U1/U0 | chạy `tom_tat_ba_tang.py --cua-chan`; U1 không hơn U0 → thoát mã 3, **không** chạy U2 |
+| tổng kết | in bảng + con số công bố `preq10(U2) − preq10(U1)` ghép cặp theo seed |
+
+Tuỳ chọn:
+
+```bash
+SEEDS="0 1"  bash scripts/chay_dem_ba_tang.sh      # chạy ít seed cho nhanh
+ORACLE=1     bash scripts/chay_dem_ba_tang.sh      # chạy thêm arm1/arm2 có nhãn
+NGUONG=0.37  bash scripts/chay_dem_ba_tang.sh      # ép ngưỡng, bỏ phần tự tính
+```
+
+**Chạy lại lần hai là an toàn.** Mọi run dùng `--skip-existing`, run nào đã có `metrics.json`
+thì bỏ qua. VM chết giữa chừng → SSH lại, chạy y hệt lệnh cũ, nó đi tiếp từ chỗ dở.
+
+Xem tiến độ từ Mac bất cứ lúc nào:
+
+```bash
+gcloud compute ssh uavcl-slda --zone=us-east1-b -- 'tail -40 ~/RaybanMeta/uav-continual-learning/dem.log'
+```
+
+Muốn tự tay từng bước (hoặc cần gỡ lỗi) thì đọc tiếp E1–E6 dưới đây — đó chính là những gì
+script làm.
+
+---
+
+## E1–E6 — làm tay, ĐÚNG THỨ TỰ
 
 ## E1. T1/T2 — trục điều kiện (~15 phút) · CỬA CHẶN ĐẦU TIÊN
 
@@ -305,39 +393,58 @@ Rời tmux: `Ctrl+B` rồi `D`. Tắt Mac không sao.
 ⛔ **Cửa chặn:** U1 **không hơn** U0 (acc đường chéo + O2 hồi phục) → **DỪNG, không chạy U2**.
 Tầng nhanh không cứu được trôi thì ngân hàng chế độ không có gì để nhớ.
 
-## E4. Hiệu chỉnh `nguong` — 5 phút người, quyết định cả U2
+## E4. Hiệu chỉnh `nguong` — tính từ T1, không phải từ log U1
+
+> ⚠️ **Sửa so với bản đầu.** Tôi từng ghi "đọc `độ trôi hiện tại` trong log U1" — **không dùng
+> được**: dòng đó chỉ in **một lần ở cuối run**, phản ánh chuyến CUỐI. Với `chu_ky=4` và 12
+> chuyến thì chuyến cuối là `c11:50%`, không phải 100%. Lấy số đó làm ngưỡng là sai cỡ.
+
+Nguồn đúng là `artifacts_t1/t1_t2.json`, trường `dich_dieu_kien` — độ dịch **trên trục điều
+kiện** khi trôi đi từ 0% lên 100%, đo bằng chính backbone trên chính dataset:
 
 ```bash
-grep "tầng nhanh:" run_U1_tangnhanh_s0.log | tail -20
+python3 -c "import json; d=json.load(open('artifacts_t1/t1_t2.json')); \
+print('dich=%.4f -> nguong=%.4f' % (d['dich_dieu_kien'], d['dich_dieu_kien']/4))"
 ```
 
-Lấy giá trị `độ trôi hiện tại X` **ở các chuyến trôi 100%** (chuyến 3, 7, 11 với `chu_ky=4`),
-rồi sửa `configs/revisit_U2_nganhang.yaml`:
+Vì sao chia 4, với `n_mode: 3` (các mức 0% · 50% · 100%):
 
-```yaml
-  ngan_hang:
-    nguong: <X/2>          # thay 0.5 mặc định
+```
+khoảng cách hai chế độ KỀ NHAU trên trục = dich_dieu_kien / (n_mode − 1) = dich/2
+ngưỡng đặt ở NỬA khoảng đó                                              = dich/4
 ```
 
-Đây là tham số nguy hiểm nhất: đặt nhỏ → nở chế độ vô tội vạ; đặt lớn → gộp hết làm một.
-Với `n_mode: 3` thì log U2 phải in `số chế độ (số điều kiện THẬT: 3)` — **lệch gấp đôi là
-hỏng**, có cảnh báo ⚠️ tự động.
+Đủ rộng để tha thứ trôi trong-chuyến (`bien_do=0.25` → ±12,5%) cộng nhiễu ước lượng `m_tuoi`;
+đủ hẹp để **không gộp hai chế độ kề nhau**. Đây là tham số nguy hiểm nhất — đặt nhỏ thì nở
+chế độ vô tội vạ, đặt lớn thì gộp hết làm một.
+
+Cửa chặn hậu kiểm: log U2 phải in `số chế độ (số điều kiện THẬT: 3)` với con số gần 3.
+Lệch gấp đôi là hỏng — run_g1 tự in cảnh báo ⚠️.
 
 ## E5. U2, 3 seed (~3,5–4 giờ)
 
+Truyền `nguong` bằng `--set`, khỏi sửa file config (chạy lại tái lập được, và log lưu luôn
+giá trị đã dùng):
+
 ```bash
+NGUONG=$(python3 -c "import json; print(round(json.load(open('artifacts_t1/t1_t2.json'))['dich_dieu_kien']/4, 4))")
+echo "nguong = $NGUONG"
+
 nohup bash -c '
 for S in 0 1 2; do
   echo "=== U2 seed $S  bat dau $(date +%H:%M:%S)"
   .venv/bin/python scripts/run_g1.py \
-    --config configs/revisit_U2_nganhang.yaml \
-    --set seed=$S log.dir=./artifacts_revisit_U2_nganhang_s$S \
+    --config configs/revisit_U2_nganhang.yaml --skip-existing \
+    --set seed=$S log.dir=./artifacts_revisit_U2_nganhang_s$S slda.ngan_hang.nguong='"$NGUONG"' \
     > run_U2_nganhang_s$S.log 2>&1 || echo "    !!! LOI seed $S"
   echo "    xong $(date +%H:%M:%S)  ->  $(grep -o "Lợi ích quay lại PREQ10.*" run_U2_nganhang_s$S.log | head -1)"
 done
 echo "=== U2 XONG $(date +%H:%M:%S)"
 ' > batang_u2.log 2>&1 &
 ```
+
+Nếu T1 kết luận `TRUC_CHUNG` thì thêm vào cùng cụm `--set`:
+`slda.tang_nhanh.kieu=truc slda.tang_nhanh.truc_json=artifacts_t1/t1_t2.json`
 
 ## E6. Oracle có nhãn + ablation N1 (máy khác / đêm khác, không chặn track chính)
 
@@ -383,11 +490,15 @@ mkdir -p ~/Desktop/Raybanmeta/result_test/batang
 gcloud compute scp uavcl-batang:/tmp/res_batang.tgz ~/Desktop/Raybanmeta/result_test/batang/ --zone=us-east1-b
 cd ~/Desktop/Raybanmeta/result_test/batang && tar xzf res_batang.tgz
 
-cd ~/Desktop/Raybanmeta
-python3 uav-continual-learning/scripts/compare_all.py result_test/batang
+cd ~/Desktop/Raybanmeta/result_test/batang
+python3 ~/Desktop/Raybanmeta/uav-continual-learning/scripts/tom_tat_ba_tang.py .
 ```
 
 `GOI_XONG /home/...` = gói thành công (`Connection closed` sau đó là bình thường).
+
+`tom_tat_ba_tang.py` chỉ dùng thư viện chuẩn → chạy bằng `python3` thường, không cần venv,
+không cần torch. Nó in bảng O1/O3/O2/số chế độ theo từng seed **và** con số công bố
+`preq10(U2) − preq10(U1)` ghép cặp theo seed, kèm σ.
 
 ## Đọc kết quả — luật công bố
 
@@ -422,6 +533,7 @@ gcloud compute instances delete uavcl-batang --zone=us-east1-b   # xong hẳn
 |---|---|
 | `git add` chết vì `index.lock` | `rm -f .git/index.lock .git/HEAD.lock .git/objects/maintenance.lock` |
 | `stream_type=revisit cần data.drift.enabled=true` | Guard A2 cố ý chết sớm — revisit không trôi thì mọi chuyến cùng điều kiện, `mode_that` vô nghĩa |
+| `Lịch bay KHÔNG có chuyến nào lặp lại chế độ` | `num_tasks` < 4 với `chu_ky=4`. Smoke phải để `num_tasks=5`. Guard chạy đúng |
 | `grep -c m_tuoi` ra 0 trên VM | VM chạy code cũ → O3 nhiễm chuyến trước, kết quả rác mà không báo lỗi |
 | log U2 in `số chế độ` lệch gấp đôi số điều kiện thật | `nguong` sai → quay lại E4 |
 | seed override không ăn | Lặp `--set` hai lần → rớt. Gộp **1 `--set` nhiều cặp** |
