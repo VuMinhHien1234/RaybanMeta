@@ -1,0 +1,50 @@
+# ARM 1 (ORACLE) — BAY LAP LAI, lam=1, CO NHAN moi chuyen.
+# Vai tro sau P1 (KE_HOACH_SUA 2026-08-04): day la TRAN TREN oracle — khoang cach tu
+# U0/U1/U2 (khong nhan) toi day = gia cua viec mat nhan. KHONG con la track chinh.
+# A4: don rac — bo khoi memory/m3/eval_future (slda gradient-free khong dung optimizer;
+# de `optimizer: m3` con lam ten thu muc ket qua bi gan hau to _m3 gay nham).
+seed: 0
+device: auto
+data:
+  name: resisc45
+  hf_repo: timm/resisc45
+  root: ./data
+  split_protocol: combined31500_v2
+  expected_total_samples: 31500
+  expected_samples_per_class: 700
+  num_tasks: 12
+  shuffle_classes: false
+  image_size: 224
+  batch_size: 32
+  num_workers: 2
+  stream_type: revisit
+  drift:
+    enabled: true
+    # BAY LAP LAI: muc troi theo LICH BAY tuan hoan. chu_ky=4 -> chuyen 5 lap lai
+    # dieu kien chuyen 1 -> do duoc 'Loi ich khi quay lai' (O3).
+    che_do: tuan_hoan
+    chu_ky: 4
+    # A4: sin chu_ky=4 chi sinh 3 muc {0, 50, 100}% -> n_mode=3 de moi mode deu xuat hien
+    # (n_mode=4 lam mode 1 khong bao gio dung, doc `so_che_do` de nham).
+    n_mode: 3
+    mode: linear
+    severity: 1.0
+    jitter: 0.15
+    apply_to:
+    - train
+    - val
+    - test
+backbone:
+  name: vit_small_patch16_224
+  pretrained: true
+  freeze: true
+train:
+  method: slda
+  epochs_per_task: 1
+log:
+  dir: ./artifacts_revisit_arm1_lam1
+slda:
+  shrinkage: 0.0001
+  cov_mode: streaming
+  decay_mean: 1.0
+  decay_cov: 1.0

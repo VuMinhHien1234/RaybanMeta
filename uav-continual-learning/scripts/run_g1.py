@@ -96,6 +96,9 @@ def main() -> int:
     # #27 open-set: openset.enabled=true -> giữ lại `holdout` class KHÔNG BAO GIỜ train làm mẫu lạ.
     os_cfg = cfg.get("openset") or {}
     holdout_classes: list = []
+    # None = KHÔNG phải stream bay lặp lại -> bỏ qua toàn bộ phần thước đo revisit ở cuối.
+    # Phải khởi tạo ở đây vì chỉ nhánh 'revisit' mới gán, mà chỗ dùng thì nằm ngoài if/elif.
+    mode_that = None
     if bool(os_cfg.get("enabled", False)):
         from uavcl.data.stream import build_stream_with_holdout
 
@@ -110,6 +113,46 @@ def main() -> int:
             holdout=int(os_cfg.get("holdout", 5)),
         )
         print(f"[openset] class GIỮ LẠI (không train, làm mẫu lạ): {holdout_classes}")
+    elif str(cfg["data"].get("stream_type", "class")).lower() == "revisit":
+        # BAY LẶP LẠI — chia mẫu y hệt domain-incremental (mọi chuyến đủ mọi lớp); khác biệt
+        # nằm ở ĐIỀU KIỆN: loaders.py lấy mức trôi theo LỊCH BAY tuần hoàn, nên điều kiện cũ
+        # QUAY LẠI. Đây mới là bài toán thật (xem BAI_TOAN_VA_MUC_TIEU §1).
+        from uavcl.data.revisit import lich_tu_cfg
+        from uavcl.data.stream import build_domain_stream
+
+        # A2 (KE_HOACH_SUA): revisit mà KHÔNG trôi thì mọi chuyến cùng điều kiện — mode_that
+        # vẫn được tính và báo cáo O3 in ra như thật nhưng đo một hiện tượng không tồn tại.
+        # Chặn ngay tại đây, trước khi đốt giờ máy.
+        if not bool((cfg["data"].get("drift") or {}).get("enabled", False)):
+            raise ValueError("stream_type=revisit cần data.drift.enabled=true — không có trôi "
+                             "thì mọi chuyến cùng điều kiện, thước đo O3 vô nghĩa")
+        stream = build_domain_stream(
+            source.splits["train"].labels,
+            source.splits["val"].labels,
+            source.splits["test"].labels,
+            num_classes=source.num_classes,
+            num_tasks=int(cfg["data"]["num_tasks"]),
+            seed=seed,
+        )
+        # A3: lịch bay qua MỘT nguồn duy nhất — loaders.py dựng lại từ đúng hàm này.
+        _lich = lich_tu_cfg(len(stream), dict(cfg["data"].get("drift") or {}))
+        mode_that = [c.mode_that for c in _lich]      # CHỈ để chấm điểm, model không thấy
+        print(f"[stream] REVISIT: {len(stream)} chuyến bay × {source.num_classes} lớp "
+              f"(điều kiện QUAY LẠI — {sum(1 for c in _lich if c.lan_gap_mode > 1)} chuyến lặp)")
+        # DL1 — `test_chung`: bài toán nói bay lại CÙNG KHU VỰC. Mặc định chia test rời từng
+        # chuyến (~1/T tập test) -> mỗi chuyến chấm trên ẢNH KHÁC NHAU và nhiễu đường chéo
+        # cỡ ±2 điểm — sát cỡ hiệu ứng O3. Bật cờ này: MỌI chuyến chấm trên TOÀN BỘ tập test,
+        # chỉ khác drift của chuyến -> đúng nghĩa "cùng cảnh, khác điều kiện", σ giảm ~√T lần.
+        # Giá: eval nặng hơn T lần — chạy GPU. Mặc định TẮT.
+        _p2cfg = dict(cfg["data"].get("pha2") or {})
+        if bool(_p2cfg.get("test_chung", False)):
+            _all_test = list(range(len(source.splits["test"].labels)))
+            for _spec in stream:
+                _spec.test_idx = list(_all_test)
+            print(f"[revisit] test_chung BẬT — mọi chuyến chấm trên CÙNG {len(_all_test)} ảnh test")
+        # P1: engine cần biết pha 2 không nhãn bắt đầu từ chuyến nào.
+        if _p2cfg:
+            cfg["train"]["pha2"] = _p2cfg
     elif str(cfg["data"].get("stream_type", "class")).lower() == "domain":
         # D5 — DOMAIN-incremental: mọi task đủ MỌI lớp, chỉ khác ĐIỀU KIỆN (do drift transform).
         # Tách hẳn khỏi class-incremental để khi accuracy tụt còn biết là do quên lớp hay do trôi.
@@ -179,12 +222,21 @@ def main() -> int:
             # D1 — hệ số QUÊN. 1.0 = không quên = hành vi cũ.
             decay_mean=float(slda_cfg.get("decay_mean", 1.0)),
             decay_cov=float(slda_cfg.get("decay_cov", 1.0)),
+            # M1/M2 — BA TẦNG (mặc định TẮT; xem KE_HOACH_SUA nhóm D/E).
+            tang_nhanh=slda_cfg.get("tang_nhanh"),
+            ngan_hang=slda_cfg.get("ngan_hang"),
         ).to(device)
         print(f"[slda] shrinkage={model.shrinkage:g} cov_mode={model.cov_mode}"
               + (f" cov_freeze_after={model.cov_freeze_after}" if model.cov_mode == "frozen" else "")
               + f" dtype={model.stats_dtype}"
               + (f" λ_μ={model.decay_mean:g} λ_Σ={model.decay_cov:g}"
                  if (model.decay_mean < 1 or model.decay_cov < 1) else " λ=1 (không quên)"))
+        if model.tang_nhanh is not None:
+            print(f"[ba_tang] tầng NHANH bật: kieu={model.tang_nhanh.kieu} "
+                  f"λ={model.tang_nhanh.decay:g}"
+                  + (f" | tầng TRUNG bật: nguong={model.ngan_hang.nguong:g} "
+                     f"k_max={model.ngan_hang.k_max}" if model.ngan_hang is not None else
+                     " | tầng TRUNG tắt"))
     else:
         model = ContinualClassifier(backbone, feat_dim, source.num_classes, head=head_kind).to(device)
     method = build_method(method_name, cfg)
@@ -256,6 +308,88 @@ def main() -> int:
     print("\n== Ma trận accuracy (hàng = sau khi học task i, cột = đánh giá task j)")
     with np.printoptions(precision=3, suppress=True):
         print(np.tril(R))
+    # --- BAY LẶP LẠI: thước đo riêng cho O1/O3 ------------------------------------------
+    # AAA/Acc/Forget KHÔNG đo được O3 ("gặp lại điều kiện cũ thì nhận ra ngay"). Bài học từ
+    # D10: λ hoạt động tốt nhưng AAA che mất hoàn toàn. Nên in RIÊNG, không trộn vào bảng cũ.
+    if mode_that is not None:
+        from uavcl.metrics import (in_bao_cao, loi_ich_quay_lai, thoi_gian_hoi_phuc,
+                                   tom_tat_revisit)
+
+        rv = tom_tat_revisit(R, mode_that)
+        rv["mode_that"] = list(map(int, mode_that))
+        # --- O2 (A5/P2): thời gian hồi phục từ chuỗi PREQUENTIAL của pha 2 ---------------
+        # log["trace"][t] = acc từng batch của chuyến t, CHẤM TRƯỚC KHI cập nhật. Chỉ những
+        # chuyến mà chế độ ĐỔI so với chuyến trước mới có "sự kiện đổi điều kiện" để đo.
+        trace = log.get("trace") or {}
+        if trace:
+            hoi_phuc = {}
+            for t_idx in sorted(trace):
+                if t_idx >= 1 and mode_that[t_idx] != mode_that[t_idx - 1]:
+                    hp = thoi_gian_hoi_phuc(trace[t_idx])
+                    hoi_phuc[str(t_idx)] = (hp if hp != float("inf") else "inf")
+            huu_han = [v for v in hoi_phuc.values() if v != "inf"]
+            rv["o2_hoi_phuc_theo_chuyen"] = hoi_phuc
+            rv["o2_hoi_phuc_tb_batch"] = (sum(huu_han) / len(huu_han)) if huu_han else None
+            rv["o2_so_chuyen_khong_hoi_phuc"] = sum(1 for v in hoi_phuc.values() if v == "inf")
+            rv["prequential"] = {str(k): [round(float(a), 4) for a in v]
+                                 for k, v in trace.items()}
+            # --- ⭐ O3 trên PREQUENTIAL — con số chính khi có trace ------------------------
+            # Phát hiện từ mô phỏng đầu-cuối (scripts/mo_phong_ba_tang.py, 2026-08-04):
+            # đường chéo R chấm SAU khi hấp thụ cả chuyến, lúc tầng nhanh ĐÃ tự hội tụ
+            # (~3-4 batch với λ=0,99) -> R[t][t] của U1 và U2 gần trùng nhau và
+            # `loi_ich_quay_lai` trên R BỊ MÙ với ngân hàng chế độ. Lợi ích "nhận ra ngay"
+            # nằm ở ĐẦU chuyến -> đo trên trung bình prequential 10 batch đầu. Báo cáo
+            # O3 = preq10(U2) − preq10(U1) cùng seed (so một biến, tự khử carryover EMA).
+            ts = sorted(trace)
+            if ts:
+                K = 10
+                modes_p2 = [int(mode_that[t]) for t in ts]
+
+                def _R_gia(vals):
+                    n = len(vals)
+                    return [[vals[j] if j <= i else 0.0 for j in range(n)] for i in range(n)]
+
+                m_dau = [sum(trace[t][:K]) / max(len(trace[t][:K]), 1) for t in ts]
+                m_ca = [sum(trace[t]) / max(len(trace[t]), 1) for t in ts]
+                r10 = loi_ich_quay_lai(_R_gia(m_dau), modes_p2)
+                rca = loi_ich_quay_lai(_R_gia(m_ca), modes_p2)
+                rv["o3_preq10_loi_ich"] = r10["loi_ich_quay_lai"]     # ⭐ số chính
+                rv["o3_preq10_so_lan"] = r10["so_lan_quay_lai"]
+                rv["o3_preq_ca_chuyen_loi_ich"] = rca["loi_ich_quay_lai"]
+                rv["o3_preq10_theo_lan"] = {k: v for k, v in r10.items()
+                                            if k.startswith("loi_ich_lan_")}
+        metrics.update({f"revisit_{k}": v for k, v in rv.items()
+                        if k not in ("mode_that", "prequential", "o2_hoi_phuc_theo_chuyen")})
+        print("\n== BAY LẶP LẠI — thước đo cho mục tiêu O1/O3")
+        print(in_bao_cao(rv))
+        if trace and rv.get("o2_hoi_phuc_tb_batch") is not None:
+            print(f"  Thời gian hồi phục     : {rv['o2_hoi_phuc_tb_batch']:.1f} batch (O2) "
+                  f"trên {len(rv['o2_hoi_phuc_theo_chuyen'])} lần đổi điều kiện"
+                  + (f" · {rv['o2_so_chuyen_khong_hoi_phuc']} chuyến KHÔNG hồi phục ⚠️"
+                     if rv["o2_so_chuyen_khong_hoi_phuc"] else ""))
+            print("  ⚠️ O2 tính so với mức ổn định CỦA CHÍNH arm — arm đứng im ở mức thấp "
+                  "cũng 'hồi phục' nhanh. Luôn đọc O2 KÈM acc.")
+        if trace and "o3_preq10_loi_ich" in rv:
+            print(f"  Lợi ích quay lại PREQ10: {rv['o3_preq10_loi_ich']:+.4f} (⭐ O3 số chính, "
+                  f"{rv['o3_preq10_so_lan']} lần gặp lại) · cả chuyến {rv['o3_preq_ca_chuyen_loi_ich']:+.4f}")
+            print("  ⚠️ O3 trên đường chéo R bị MÙ với ngân hàng chế độ (chấm cuối chuyến, "
+                  "tầng nhanh đã tự hội tụ) — công bố bằng hiệu PREQ10 giữa U2 và U1.")
+        # BA TẦNG: bằng chứng chạy đúng, in một dòng mỗi tầng (như window_report của SLDA).
+        if getattr(model, "tang_nhanh", None) is not None:
+            bc = model.tang_nhanh.bao_cao()
+            print(f"  [ba_tang] tầng nhanh: {bc['so_mau']} mẫu, độ trôi hiện tại "
+                  f"{bc['do_troi_hien_tai']:.4f}, {bc['bytes'] / 1024:.1f} KB")
+        if getattr(model, "ngan_hang", None) is not None:
+            bc = model.ngan_hang.bao_cao()
+            rv["ngan_hang"] = bc
+            print(f"  [ba_tang] tầng trung: {bc['so_che_do']} chế độ "
+                  f"(số điều kiện THẬT: {len(set(mode_that))}) · nạp lại {bc['so_lan_nap']} lần "
+                  f"· {bc['bytes'] / 1024:.1f} KB")
+            if bc["so_che_do"] > 2 * len(set(mode_that)):
+                print("  ⚠️ số chế độ NỔ so với số điều kiện thật — giảm nguong hoặc xem lại T1")
+        # Ghi file SAU CÙNG để gồm cả o2_* lẫn báo cáo ngân hàng chế độ.
+        (out / "metrics_revisit.json").write_text(json.dumps(rv, indent=2), encoding="utf-8")
+
     print("\n== Kết quả")
     print(f"  Average Accuracy   : {metrics['average_accuracy']:.4f}  (cao = tốt)")
     print(f"  Average Forgetting : {metrics['average_forgetting']:.4f}  (thấp = tốt — con số dự án cần giảm)")

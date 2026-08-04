@@ -127,7 +127,15 @@ class TitansClassifier(nn.Module):
         # đúng một dòng khẳng định, đọc là biết ngay.
         _gb = self.memory.gate_bound_report() if hasattr(self.memory, "gate_bound_report") else None
         print(f"[titans] gate_bound {'BẬT — ' + _gb if _gb else 'TẮT (config không khai báo)'}")
-        self.post_norm = nn.LayerNorm(dim)  # luật C2: ổn định số sau memory  ↳ Chuẩn hoá đầu ra memory.
+        # A1 (2026-08-04, KE_HOACH_SUA) — post_norm giờ TẮT ĐƯỢC qua config. Vì sao: D11 §2.1
+        # phát hiện đổi trần η gấp 100 lần mà Δacc = 0,00002; nghi phạm số 1 là chính LayerNorm
+        # này — nó chuẩn hoá lại thang đo NGAY SAU memory nên có thể triệt tiêu độ lớn bước ghi
+        # mà η điều khiển. Ablation Ưu tiên 2: chạy với `memory.post_norm: false`, 3 seed.
+        # Mặc định BẬT (đúng hành vi cũ) -> mọi run trước đó bất biến. Identity giữ nguyên
+        # đường gọi ở features_from_extracted, không phải sửa chỗ nào khác.
+        _pn = bool(memory_cfg.get("post_norm", True))
+        self.post_norm = nn.LayerNorm(dim) if _pn else nn.Identity()  # luật C2 (khi bật): ổn định số sau memory
+        print(f"[titans] post_norm {'BẬT (mặc định — LayerNorm sau memory)' if _pn else 'TẮT — ablation D11 Ưu tiên 2'}")
         # TASK 4 (bổ trợ) — chuẩn hoá TRƯỚC memory. Hai cổng η/α là nn.Linear áp THẲNG lên feature
         # ViT thô (neural_memory.py:451, :514); không có chuẩn hoá nào ở phía trước -> logit dễ lớn.
         # `qk_rmsnorm` KHÔNG cứu được vì nó chỉ chạm q/k trong đường đọc/ghi, không chạm 2 cổng này.

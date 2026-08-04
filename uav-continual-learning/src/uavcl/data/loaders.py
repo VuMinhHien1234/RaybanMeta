@@ -63,6 +63,53 @@ class TaskDataset(Dataset):
         return x, y                               # ↳ Trả (ảnh_tensor, nhãn).
 
 
+class TaskDatasetDongThoiGian(Dataset):
+    """P2 (KE_HOACH_SUA 2026-08-04) — chuyến pha 2 như một DÒNG THỜI GIAN thật.
+
+    Khác TaskDataset ở ba điểm, đều bám phát biểu bài toán gốc:
+      1. mức trôi tính THEO VỊ TRÍ MẪU trong chuyến (yêu cầu c: "nắng gắt dần suốt 10 phút"
+         — điều kiện đổi TRONG chuyến, không phải mỗi chuyến một hằng số);
+      2. dùng transform kiểu EVAL (resize, KHÔNG RandomResizedCrop/Flip) — dữ liệu triển
+         khai không phải dữ liệu augment;
+      3. đi kèm shuffle=False ở DataLoader (vị trí k = thời gian; xáo trộn là xoá thời gian).
+
+    Thứ tự phép biến đổi giữ đúng nguyên tắc của drift.py: hình học -> ToTensor -> TRÔI
+    (trên thang [0,1]) -> Normalize.
+    """
+
+    def __init__(self, split, indices: List[int], image_size: int,
+                 muc_chuyen: float, bien_do: float, jitter: float, seed: int):
+        from .drift import ApDungTroi                    # import trễ: né vòng import
+        self.split = split
+        self.indices = list(indices)
+        self.image_size = int(image_size)
+        self.muc_chuyen = float(muc_chuyen)
+        self.bien_do = float(bien_do)                    # 0 = điều kiện phẳng trong chuyến
+        self.jitter = float(jitter)
+        self.seed = int(seed)
+        self._ApDungTroi = ApDungTroi
+        self._pre = T.Compose([T.Resize((self.image_size, self.image_size)), T.ToTensor()])
+        self._norm = T.Normalize(IMAGENET_MEAN, IMAGENET_STD)
+
+    def __len__(self) -> int:
+        return len(self.indices)
+
+    def muc_tai(self, k: int) -> float:
+        """Mức trôi của mẫu thứ k: đi tuyến tính từ (muc − bđ/2) đến (muc + bđ/2)."""
+        n = len(self.indices)
+        tien_do = k / max(n - 1, 1)                      # ↳ 0 (đầu chuyến) -> 1 (cuối chuyến)
+        m = self.muc_chuyen + self.bien_do * (tien_do - 0.5)
+        return float(min(1.0, max(0.0, m)))
+
+    def __getitem__(self, k: int):
+        i = self.indices[k]
+        x = self._pre(self.split.get_image(i))           # ↳ PIL -> tensor [0,1]
+        m = self.muc_tai(k)
+        if m > 0.0:                                      # ↳ seed theo MẪU -> tái lập từng khung hình
+            x = self._ApDungTroi(m, jitter=self.jitter, seed=self.seed + k)(x)
+        return self._norm(x), int(self.split.labels[i])
+
+
 def build_task_loaders(
     source: DataSource, stream: List[TaskSpec], data_cfg: dict
 ) -> List[Dict[str, DataLoader]]:
@@ -80,22 +127,74 @@ def build_task_loaders(
     drift_bat = bool(drift_cfg.get("enabled", False))
     ap_cho = set(drift_cfg.get("apply_to", ["train", "val", "test"]))
     seed_drift = int(data_cfg.get("seed", 0))
+
+    # --- BAY LẶP LẠI: mức trôi lấy theo LỊCH BAY, không phải hàm đơn điệu của chỉ số task ----
+    # Khác biệt cốt lõi: `drift.muc_troi()` đơn điệu -> điều kiện cũ KHÔNG BAO GIỜ quay lại.
+    # `revisit.lich_bay()` tuần hoàn -> điều kiện CÓ quay lại, và đó mới là bài toán thật.
+    # Mặc định tắt -> mọi config cũ (kể cả 6 config D10 đã chạy) đi đúng đường cũ, bất biến.
+    lich = None
+    if drift_bat and str(data_cfg.get("stream_type", "")).lower() == "revisit":
+        # A3: lịch bay dựng qua MỘT nguồn duy nhất (revisit.lich_tu_cfg) — run_g1 cũng vậy.
+        from .revisit import bang_lich_bay, kiem_lich, lich_tu_cfg
+        lich = lich_tu_cfg(len(stream), drift_cfg)
+        kiem_lich(lich)      # chặn lịch không có chuyến lặp -> O3 không đo được
+        print(f"[revisit] BẬT · che_do={drift_cfg.get('che_do', 'tuan_hoan')} "
+              f"chu_ky={drift_cfg.get('chu_ky', 4)} n_mode={drift_cfg.get('n_mode', 4)}")
+        print(f"[revisit] lịch bay: {bang_lich_bay(lich)}")
+
+    # --- P2: pha 2 như DÒNG THỜI GIAN (mặc định TẮT -> đường cũ bất biến) -----------------
+    # thu_tu_thoi_gian: shuffle=false + transform eval cho chuyến pha 2 (dòng triển khai
+    #                   không xáo trộn, không augment)
+    # drift.trong_chuyen: mức trôi đổi DẦN bên trong chuyến (yêu cầu c của bài toán gốc)
+    pha2_cfg = dict(data_cfg.get("pha2") or {})
+    p2_thu_tu = bool(pha2_cfg.get("thu_tu_thoi_gian", False))
+    chuyen_hc = int(pha2_cfg.get("chuyen_hieu_chinh", 1))
+    tc_cfg = dict(drift_cfg.get("trong_chuyen") or {})
+    tc_bat = bool(tc_cfg.get("enabled", False))
+    tc_bien_do = float(tc_cfg.get("bien_do", 0.25))
+    dong_tg = lich is not None and (p2_thu_tu or tc_bat)
+    if dong_tg:
+        print(f"[pha2] dòng thời gian BẬT từ chuyến {chuyen_hc}: "
+              f"thu_tu={p2_thu_tu} · trôi trong chuyến={'±%.2f' % (tc_bien_do / 2) if tc_bat else 'TẮT'}")
+
     if drift_bat:
         from .drift import bang_muc_troi, build_drift_transform
         print(f"[drift] BẬT · mode={drift_cfg.get('mode', 'linear')} "
               f"severity={drift_cfg.get('severity', 1.0)} "
               f"jitter={drift_cfg.get('jitter', 0.15)} · áp cho {sorted(ap_cho)}")
-        print(f"[drift] mức từng task: {bang_muc_troi(len(stream), drift_cfg)}")
+        if lich is None:
+            print(f"[drift] mức từng task: {bang_muc_troi(len(stream), drift_cfg)}")
 
     def tf_cua_task(t: int, split_name: str, train: bool):
         """Transform của task t. Không bật drift -> trả đúng transform cũ."""
         if not drift_bat or split_name not in ap_cho:
             return tf_train if train else tf_eval
+        if lich is not None:
+            # Ép mức trôi của chuyến bay t bằng cách coi nó như stream 2 mốc [0, muc].
+            # `build_drift_transform(task_idx=1, num_tasks=2, severity=muc)` -> đúng mức muc,
+            # nên không phải nhân bản logic dựng transform ở hai chỗ.
+            cfg_t = dict(drift_cfg, mode="linear", severity=lich[t].muc_troi)
+            return build_drift_transform(image_size, 1, 2, cfg_t, train=train,
+                                         seed=seed_drift * 1000 + t)
         return build_drift_transform(image_size, t, len(stream), drift_cfg,
                                      train=train, seed=seed_drift)
 
     def dl(split_name: str, idx: List[int], train: bool, t: int) -> DataLoader:
         # ↳ Hàm phụ dựng 1 DataLoader từ tên split + danh sách chỉ số.
+        # P2: chuyến PHA 2 (t >= chuyen_hieu_chinh) của stream revisit, split train,
+        # khi bật dòng-thời-gian -> dataset theo vị trí + KHÔNG xáo trộn.
+        if dong_tg and train and t >= chuyen_hc and split_name in ap_cho:
+            ds = TaskDatasetDongThoiGian(
+                source.splits[split_name], idx, image_size,
+                muc_chuyen=lich[t].muc_troi,
+                bien_do=(tc_bien_do if tc_bat else 0.0),
+                jitter=float(drift_cfg.get("jitter", 0.15)),
+                seed=(seed_drift * 1000 + t) * 100000,   # ↳ cách xa seed cũ, +k theo mẫu bên trong
+            )
+            return DataLoader(ds, batch_size=batch_size,
+                              shuffle=not p2_thu_tu,     # ↳ thứ tự = thời gian khi thu_tu bật
+                              num_workers=num_workers,
+                              pin_memory=torch.cuda.is_available(), drop_last=False)
         ds = TaskDataset(source.splits[split_name], idx, tf_cua_task(t, split_name, train))
         return DataLoader(
             ds,

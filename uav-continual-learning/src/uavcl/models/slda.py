@@ -24,6 +24,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
+from .classifier import mask_logits
 
 COV_MODES = ("streaming", "identity", "frozen")
 
@@ -46,7 +47,8 @@ class SLDAClassifier(nn.Module):
     def __init__(self, backbone: nn.Module, feat_dim: int, num_classes: int,
                  shrinkage: float = 1e-4, cov_mode: str = "streaming",
                  cov_freeze_after: int = 1, stats_dtype: str = "float64",
-                 decay_mean: float = 1.0, decay_cov: float = 1.0):
+                 decay_mean: float = 1.0, decay_cov: float = 1.0,
+                 tang_nhanh: dict | None = None, ngan_hang: dict | None = None):
         super().__init__()
         if shrinkage <= 0.0:
             raise ValueError(f"shrinkage phải > 0 (nhận {shrinkage})")
@@ -123,6 +125,33 @@ class SLDAClassifier(nn.Module):
         self._cache_b = None       # (C,)   = −½ μ_c Λ μ_c
         self._cache_version = -1   # bump theo _version mỗi lần update
         self._version = 0
+        # --- BA TẦNG (M1/M2, KE_HOACH_SUA 2026-08-04) — mặc định TẮT -> hành vi cũ bất biến.
+        # tầng nhanh: căn feature về hệ toạ độ pha 1 (điều kiện lúc này, KHÔNG nhãn, mỗi batch)
+        # tầng trung: ngân hàng chế độ — nhớ các điều kiện đã gặp (1 lần/chuyến, KHÔNG nhãn)
+        # Thống kê tầng chậm (μ_c, Σ) từ đây sống trong hệ toạ độ e₀: update() lẫn forward()
+        # đều đi qua _can_chinh() trước.
+        self.tang_nhanh = None
+        self.ngan_hang = None
+        tn_cfg = dict(tang_nhanh or {})
+        if tn_cfg.get("enabled", False):
+            from .tang_nhanh import TangNhanh
+            self.tang_nhanh = TangNhanh(
+                dim=feat_dim, decay=float(tn_cfg.get("decay", 0.99)),
+                kieu=str(tn_cfg.get("kieu", "day_du")),
+                truc_json=tn_cfg.get("truc_json"))
+        nh_cfg = dict(ngan_hang or {})
+        if nh_cfg.get("enabled", False):
+            if self.tang_nhanh is None:
+                # Chặn cấu hình vô nghĩa: tầng trung LƯU snapshot của tầng nhanh — không có
+                # tầng nhanh thì không có gì để lưu/nạp.
+                raise ValueError("slda.ngan_hang cần slda.tang_nhanh.enabled=true "
+                                 "(tầng trung là bộ nhớ CỦA tầng nhanh)")
+            from .ngan_hang_che_do import NganHangCheDo
+            self.ngan_hang = NganHangCheDo(
+                dim=feat_dim, nguong=float(nh_cfg.get("nguong", 0.5)),
+                k_max=int(nh_cfg.get("k_max", 8)),
+                cho_khop_sau=int(nh_cfg.get("cho_khop_sau", 5)),
+                lam_mode=float(nh_cfg.get("lam_mode", 0.5)))
 
     def train(self, mode: bool = True):  # noqa: D401
         """Backbone luôn eval (thống kê BatchNorm/LayerNorm không trôi)."""
@@ -132,7 +161,15 @@ class SLDAClassifier(nn.Module):
 
     @torch.no_grad()
     def update(self, feats: torch.Tensor, ys: torch.Tensor) -> None:
-        """Hấp thụ 1 batch (streaming): cộng dồn s_c, n_c, G. Không giữ lại mẫu."""
+        """Hấp thụ 1 batch (streaming): cộng dồn s_c, n_c, G. Không giữ lại mẫu.
+
+        BA TẦNG: tầng nhanh nuốt feature THÔ (m_t bám dòng thật), còn thống kê tầng chậm
+        nhận feature ĐÃ CĂN CHỈNH — μ_c/Σ sống trong hệ toạ độ e₀. Ở pha 1 căn chỉnh là
+        identity (mốc chưa chốt) nên hành vi trùng khít bản cũ.
+        """
+        if self.tang_nhanh is not None:
+            self.tang_nhanh.cap_nhat(feats.detach().float())
+            feats = self.tang_nhanh.can_chinh(feats.detach().float())
         f = feats.detach().to(self.feat_sum.dtype)   # ↳ theo stats_dtype (float64 mặc định)
         if not torch.isfinite(f).all():
             raise FloatingPointError("SLDA nhận feature chứa NaN/Inf")
@@ -227,8 +264,84 @@ class SLDAClassifier(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
             feats = self.backbone(x).float()
+            if self.tang_nhanh is not None:              # ↳ đưa về hệ toạ độ e₀ trước khi chấm
+                feats = self.tang_nhanh.can_chinh(feats)
         self._refresh_cache()
         return feats @ self._cache_w + self._cache_b    # (B, C) discriminant scores — dùng như logits
+
+    # ================== BA TẦNG — pha 2 KHÔNG NHÃN (P1/P2, KE_HOACH_SUA 2026-08-04) =========
+    @torch.no_grad()
+    def chot_moc_pha1(self) -> None:
+        """Cuối pha hiệu chỉnh (chuyến CÓ nhãn cuối cùng): đóng băng mốc (m0, v0) của tầng
+        nhanh. Engine gọi đúng một lần. Không có tầng nhanh -> no-op."""
+        if self.tang_nhanh is not None:
+            self.tang_nhanh.chot_moc()
+            print(f"[ba_tang] ĐÃ CHỐT mốc pha 1 (m0/v0) sau {self.tang_nhanh.so_mau} mẫu "
+                  f"— căn chỉnh bắt đầu có tác dụng từ chuyến sau")
+
+    @torch.no_grad()
+    def hap_thu_khong_nhan(self, loader, device, allowed=None) -> list:
+        """Pha 2 — dòng KHÔNG nhãn của bài toán gốc (§2/§3). Trả về chuỗi accuracy
+        PREQUENTIAL (test-then-train): mỗi batch DỰ ĐOÁN TRƯỚC bằng trạng thái hiện có,
+        RỒI mới cho các tầng không nhãn cập nhật. Đúng nghĩa "trả lời ŷ_t trước khi thấy
+        x_{t+1}", và chính chuỗi này nuôi thước đo O2 (thời gian hồi phục).
+
+        LUẬT NHÃN: `y` trong loader CHỈ dùng để CHẤM prequential — cùng nguyên tắc với
+        `mode_that`. Không một giá trị y nào chạm vào update (μ_c/Σ/m_t đều không).
+        Bằng chứng kiểm được: `count_raw` đứng yên suốt pha 2 (test bắt điều này).
+        """
+        self.eval()
+        accs: list = []
+        dem_batch = 0
+        m_tuoi_sum = None                         # ↳ trung bình TƯƠI của chuyến này (cho khớp)
+        for x, y in loader:
+            x = x.to(device)
+            raw = self.backbone(x).float()
+            # 1) DỰ ĐOÁN TRƯỚC — bằng trạng thái tầng nhanh HIỆN TẠI (chưa thấy batch này)
+            f = self.tang_nhanh.can_chinh(raw) if self.tang_nhanh is not None else raw
+            self._refresh_cache()
+            logits = f @ self._cache_w + self._cache_b
+            if allowed is not None:
+                logits = mask_logits(logits, allowed)
+            pred = logits.argmax(dim=1).cpu()
+            accs.append(float((pred == y).float().mean()))
+            # 2) RỒI MỚI CẬP NHẬT — chỉ các tầng KHÔNG nhãn, chỉ từ feature thô
+            if self.tang_nhanh is not None:
+                self.tang_nhanh.cap_nhat(raw)
+            dem_batch += 1
+            # tầng trung: khớp bằng trung bình TƯƠI của chuyến (KHÔNG dùng m_t — nó còn
+            # nhiễm điều kiện chuyến trước, xem chú thích trong khop_va_nap).
+            if self.ngan_hang is not None and dem_batch <= self.ngan_hang.cho_khop_sau:
+                mb = raw.mean(dim=0)
+                m_tuoi_sum = mb if m_tuoi_sum is None else m_tuoi_sum + mb
+                if dem_batch == self.ngan_hang.cho_khop_sau:
+                    m_tuoi = m_tuoi_sum / float(dem_batch)
+                    if self.ngan_hang.khop_va_nap(self.tang_nhanh, m_tuoi=m_tuoi):
+                        print(f"[ba_tang] GẶP LẠI chế độ cũ (sau {dem_batch} batch) — "
+                              f"nạp snapshot, khỏi học lại (O3)")
+        if self.ngan_hang is not None:            # ↳ cuối chuyến: ghi/mài chế độ
+            self.ngan_hang.ghi_lai(self.tang_nhanh)
+        return accs
+
+    # -------- state ba tầng cho memory_state.pt (run_g1 lưu cuối stream) --------------------
+    def export_state(self):
+        if self.tang_nhanh is None:
+            return None
+        st = {"tang_nhanh": self.tang_nhanh.export_state()}
+        if self.ngan_hang is not None:
+            st["ngan_hang"] = self.ngan_hang.export_state()
+        return st
+
+    def import_state(self, st) -> None:
+        if st and self.tang_nhanh is not None and "tang_nhanh" in st:
+            self.tang_nhanh.import_state(st["tang_nhanh"])
+        if st and self.ngan_hang is not None and "ngan_hang" in st:
+            self.ngan_hang.import_state(st["ngan_hang"])
+
+    def state_norm(self) -> float:
+        if self.tang_nhanh is None or self.tang_nhanh.m_t is None:
+            return 0.0
+        return float(self.tang_nhanh.m_t.norm())
 
     def extra_floats(self) -> int:
         return int(self.feat_sum.numel() + self.count.numel() + self.gram.numel()
@@ -252,6 +365,12 @@ class SLDAClassifier(nn.Module):
             "frozen_sigma": _b(self._frozen_sigma),
             "cache_w_b": _b(self._cache_w) + _b(self._cache_b),
         }
+        # BA TẦNG (O4): cộng chi phí tầng nhanh/trung vào cùng bảng — đối chiếu ràng buộc
+        # "tổng bộ nhớ thêm ≤ 10 MB" ngay trong log của mọi run.
+        if self.tang_nhanh is not None:
+            parts["tang_nhanh"] = self.tang_nhanh.extra_bytes()
+        if self.ngan_hang is not None:
+            parts["ngan_hang"] = self.ngan_hang.extra_bytes()
         parts["total_bytes"] = sum(parts.values())
         parts["total_MB"] = parts["total_bytes"] / 1e6
         parts["cov_mode"] = self.cov_mode

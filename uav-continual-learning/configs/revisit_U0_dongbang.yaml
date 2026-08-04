@@ -1,0 +1,57 @@
+# U0 — TRACK CHINH (khong nhan): DONG BANG hoan toan sau pha 1.
+# Bai toan goc (BAI_TOAN §2/§3): nhan CHI co o chuyen hieu chinh; pha 2 la dong KHONG nhan.
+# U0 khong co tang nao de cap nhat -> moi cai thien cua U1/U2 do tu moc nay.
+# Giao thuc P1+P2+DL1 (KE_HOACH_SUA 2026-08-04):
+#   pha2.khong_nhan     : tu chuyen 1, khong nhan nao cham vao update (prequential van cham diem)
+#   pha2.test_chung     : moi chuyen cham tren CUNG tap test day du — "cung khu vuc, khac dieu kien"
+#   pha2.thu_tu_thoi_gian + drift.trong_chuyen : chuyen pha 2 la DONG thoi gian, dieu kien
+#                         doi DAN ben trong chuyen (yeu cau c cua bai toan)
+seed: 0
+device: auto
+data:
+  name: resisc45
+  hf_repo: timm/resisc45
+  root: ./data
+  split_protocol: combined31500_v2
+  expected_total_samples: 31500
+  expected_samples_per_class: 700
+  num_tasks: 12
+  shuffle_classes: false
+  image_size: 224
+  batch_size: 32
+  num_workers: 2
+  stream_type: revisit
+  pha2:
+    khong_nhan: true
+    chuyen_hieu_chinh: 1
+    test_chung: true
+    thu_tu_thoi_gian: true
+  drift:
+    enabled: true
+    che_do: tuan_hoan
+    chu_ky: 4
+    n_mode: 3
+    mode: linear
+    severity: 1.0
+    jitter: 0.15
+    trong_chuyen:
+      enabled: true
+      bien_do: 0.25
+    apply_to:
+    - train
+    - val
+    - test
+backbone:
+  name: vit_small_patch16_224
+  pretrained: true
+  freeze: true
+train:
+  method: slda
+  epochs_per_task: 1
+log:
+  dir: ./artifacts_revisit_U0
+slda:
+  shrinkage: 0.0001
+  cov_mode: streaming
+  decay_mean: 1.0
+  decay_cov: 1.0

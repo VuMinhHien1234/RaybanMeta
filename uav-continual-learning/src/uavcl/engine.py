@@ -271,8 +271,29 @@ def run_continual(
             for p in old_model_sdc.parameters():
                 p.requires_grad_(False)
         if getattr(method, "gradient_free", False): # ↳ NCM: không train bằng gradient.
-            # NCM và các method không train bằng gradient: chỉ "hấp thụ" dữ liệu task
-            method.fit_task(model, task_loaders[t]["train"], device)  # ↳ Chỉ cập nhật prototype.
+            # ---- P1 (KE_HOACH_SUA 2026-08-04): PHA 2 KHÔNG NHÃN -------------------------
+            # Bài toán gốc (BAI_TOAN §2/§3): nhãn CHỈ có ở pha hiệu chỉnh. Trước bản vá
+            # này, fit_task nhận (x, y) CÓ NHÃN ở MỌI chuyến — giải một bài dễ hơn bài thật.
+            # Bật `pha2.khong_nhan`: từ chuyến `chuyen_hieu_chinh` trở đi KHÔNG gọi
+            # fit_task; model nào có `hap_thu_khong_nhan` thì tự cập nhật các tầng không
+            # nhãn (và trả chuỗi prequential nuôi O2); không có -> đóng băng (mốc U0).
+            # Mặc định TẮT -> mọi run cũ đi đúng đường cũ, bất biến.
+            _p2 = dict(train_cfg.get("pha2") or {})
+            _khong_nhan = bool(_p2.get("khong_nhan", False))
+            _chuyen_hc = int(_p2.get("chuyen_hieu_chinh", 1))
+            if _khong_nhan and t >= _chuyen_hc:
+                if hasattr(model, "hap_thu_khong_nhan"):
+                    _allowed_preq = sorted(set(seen) | set(allowed_train))
+                    log.setdefault("trace", {})[t] = model.hap_thu_khong_nhan(
+                        task_loaders[t]["train"], device, allowed=_allowed_preq)
+                elif verbose:
+                    print(f"[pha2] chuyến {t}: KHÔNG nhãn, model không có tầng không nhãn "
+                          "-> đóng băng hoàn toàn (mốc U0)")
+            else:
+                # NCM/SLDA pha 1 (hoặc chế độ cũ): "hấp thụ" dữ liệu task CÓ nhãn.
+                method.fit_task(model, task_loaders[t]["train"], device)  # ↳ Chỉ cập nhật prototype.
+            if _khong_nhan and t == _chuyen_hc - 1 and hasattr(model, "chot_moc_pha1"):
+                model.chot_moc_pha1()       # ↳ cuối pha hiệu chỉnh: đóng băng mốc (m0, v0)
             log["train_loss"][t] = []
         else:
             losses, opt_used = train_one_task(

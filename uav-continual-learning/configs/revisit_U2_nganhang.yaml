@@ -1,0 +1,67 @@
+# U2 — TRACK CHINH (khong nhan): U1 + NGAN HANG CHE DO (M2).
+# ⭐ Cau hoi TRUNG TAM cua du an: NHO cac dieu kien da gap co lam viec quay lai re hon
+# khong? Con so cong bo = O3(U2) − O3(U1), 3 seed, kem sigma — phep so MOT BIEN nen tu
+# khu bien nhieu "hoc them du lieu thi tu khac tot len".
+# ⚠️ `nguong` la tham so nguy hiem nhat (nho: no so che do · lon: gop het lam mot).
+# Hieu chinh: doc log U1 dong `[ba_tang] tang nhanh: ... do_troi_hien_tai=X` o cac chuyen
+# muc troi 100% -> dat nguong ~ X/2. Cua chan: log U2 in "so che do (so dieu kien THAT: N)".
+seed: 0
+device: auto
+data:
+  name: resisc45
+  hf_repo: timm/resisc45
+  root: ./data
+  split_protocol: combined31500_v2
+  expected_total_samples: 31500
+  expected_samples_per_class: 700
+  num_tasks: 12
+  shuffle_classes: false
+  image_size: 224
+  batch_size: 32
+  num_workers: 2
+  stream_type: revisit
+  pha2:
+    khong_nhan: true
+    chuyen_hieu_chinh: 1
+    test_chung: true
+    thu_tu_thoi_gian: true
+  drift:
+    enabled: true
+    che_do: tuan_hoan
+    chu_ky: 4
+    n_mode: 3
+    mode: linear
+    severity: 1.0
+    jitter: 0.15
+    trong_chuyen:
+      enabled: true
+      bien_do: 0.25
+    apply_to:
+    - train
+    - val
+    - test
+backbone:
+  name: vit_small_patch16_224
+  pretrained: true
+  freeze: true
+train:
+  method: slda
+  epochs_per_task: 1
+log:
+  dir: ./artifacts_revisit_U2
+slda:
+  shrinkage: 0.0001
+  cov_mode: streaming
+  decay_mean: 1.0
+  decay_cov: 1.0
+  tang_nhanh:
+    enabled: true
+    decay: 0.99
+    kieu: day_du         # doi sang 'truc' sau T1 — voi ngan_hang cang quan trong (bay T2)
+    # truc_json: artifacts_t1/t1_t2.json
+  ngan_hang:
+    enabled: true
+    nguong: 0.5          # HIEU CHINH theo do_troi cua U1 (xem chu thich dau file)
+    k_max: 8
+    cho_khop_sau: 5      # doi 5 batch (~160 mau) cho m_t bot nhieu roi moi tra ngan hang
+    lam_mode: 0.5
