@@ -21,6 +21,8 @@ FULL_CONFIG = ROOT / "configs" / "g2_titans_resisc45_ncm_adaptation.yaml"
 SMOKE_CONFIG = ROOT / "configs" / "g2_titans_ncm_adaptation_smoke.yaml"
 DEFAULT_ARTIFACT_ROOT = ROOT / "artifacts_ncm_adaptation"
 SEEDS = (0, 1, 2)
+CONFIRMATORY_SEEDS = (3, 4, 5)
+CONFIRMATORY_GAMMA = 0.25
 DISTILL_WEIGHTS = (0.01, 0.05, 0.1)
 TRANSPORT_CANDIDATES = (
     ("translation", 0.0, 1.0),
@@ -392,8 +394,145 @@ def phase_replicate(artifact_root: pathlib.Path, *, dry_run: bool) -> None:
         phase_combine(artifact_root, selection, seed, dry_run=dry_run)
 
 
+def phase_confirm_gamma025(
+    artifact_root: pathlib.Path, *, dry_run: bool
+) -> list[pathlib.Path]:
+    """Evaluate the pre-registered gamma on fresh seeds without another sweep."""
+    results = []
+    for seed in CONFIRMATORY_SEEDS:
+        results.append(
+            _run_experiment(
+                FULL_CONFIG,
+                artifact_root,
+                f"gamma025-confirm-seed{seed}",
+                [
+                    f"seed={seed}",
+                    f"train.ncm.blend.gammas={_gamma_list([0.0, CONFIRMATORY_GAMMA])}",
+                    "train.ncm.transport.enabled=false",
+                    "train.feature_distillation.enabled=false",
+                ],
+                dry_run=dry_run,
+            )
+        )
+    return results
+
+
 def _read_metric(path: pathlib.Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def phase_confirm_report(artifact_root: pathlib.Path) -> pathlib.Path:
+    from uavcl.models.ncm_adaptation import gamma_key
+
+    gamma_key_value = gamma_key(CONFIRMATORY_GAMMA)
+    rows = []
+    for seed in CONFIRMATORY_SEEDS:
+        matches = sorted(
+            (artifact_root / "results").glob(
+                f"resisc45_titans_seed{seed}_gamma025-confirm-seed{seed}_*"
+            )
+        )
+        complete = [
+            result
+            for result in matches
+            if (result / "metrics_ncm_blend_g0.json").exists()
+            and (result / f"metrics_ncm_blend_{gamma_key_value}.json").exists()
+            and (result / "train_log.json").exists()
+            and not (result / "failure.json").exists()
+        ]
+        if len(complete) != 1:
+            raise RuntimeError(
+                f"Seed {seed} cần đúng 1 result hoàn chỉnh, tìm thấy {len(complete)}"
+            )
+        result = complete[0]
+        frozen = _read_metric(result / "metrics_ncm_blend_g0.json")
+        candidate = _read_metric(result / f"metrics_ncm_blend_{gamma_key_value}.json")
+        train_log = _read_metric(result / "train_log.json")
+        diagnostics = [
+            task["online_blend"][gamma_key_value]
+            for task in train_log["ncm_diagnostics"].values()
+        ]
+        no_replay = all(
+            not bool(item.get("revisit_old_train"))
+            and int(item.get("old_samples_revisited", 0)) == 0
+            for item in diagnostics
+        )
+        state_finite = all(bool(value) for value in train_log["state_finite"].values())
+        values = [
+            float(candidate["average_accuracy"]),
+            float(candidate["average_forgetting"]),
+            float(candidate["backward_transfer"]),
+            float(frozen["average_accuracy"]),
+            float(frozen["average_forgetting"]),
+        ]
+        if not all(math.isfinite(value) for value in values):
+            raise RuntimeError(f"Seed {seed} chứa NaN/Inf trong metrics")
+        if not no_replay or not state_finite:
+            raise RuntimeError(
+                f"Seed {seed} vi phạm hậu kiểm: no_replay={no_replay}, "
+                f"state_finite={state_finite}"
+            )
+        rows.append(
+            {
+                "seed": seed,
+                "gamma": CONFIRMATORY_GAMMA,
+                "accuracy": values[0],
+                "forgetting": values[1],
+                "backward_transfer": values[2],
+                "frozen_accuracy": values[3],
+                "frozen_forgetting": values[4],
+                "gain_over_frozen": values[0] - values[3],
+                "no_replay": no_replay,
+                "state_finite": state_finite,
+                "result_dir": str(result),
+            }
+        )
+
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    summary = artifact_root / "gamma025_confirmatory_summary.csv"
+    with summary.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+
+    def mean_std(field: str) -> tuple[float, float]:
+        values = [float(row[field]) for row in rows]
+        return statistics.fmean(values), statistics.stdev(values)
+
+    acc_mean, acc_std = mean_std("accuracy")
+    fgt_mean, fgt_std = mean_std("forgetting")
+    gain_mean, gain_std = mean_std("gain_over_frozen")
+    lines = [
+        "# Confirmatory evaluation: Anchored Blend gamma 0.25",
+        "",
+        f"- Gamma was fixed to `{CONFIRMATORY_GAMMA:g}` before these runs.",
+        f"- Fresh seeds: `{', '.join(map(str, CONFIRMATORY_SEEDS))}`.",
+        "- Transport: disabled.",
+        "- Feature distillation: disabled.",
+        "- Old train replay: forbidden and audited.",
+        "",
+        "| Seed | Accuracy | Forgetting | Frozen control | Gain over Frozen |",
+        "|---:|---:|---:|---:|---:|",
+    ]
+    for row in rows:
+        lines.append(
+            f"| {row['seed']} | {row['accuracy']:.4f} | {row['forgetting']:.4f} | "
+            f"{row['frozen_accuracy']:.4f} | {row['gain_over_frozen']:+.4f} |"
+        )
+    lines.extend(
+        [
+            f"| **Mean +/- std** | **{acc_mean:.4f} +/- {acc_std:.4f}** | "
+            f"**{fgt_mean:.4f} +/- {fgt_std:.4f}** | **0.7114 +/- 0.0000** | "
+            f"**{gain_mean:+.4f} +/- {gain_std:.4f}** |",
+            "",
+            "This report is confirmatory for the pre-registered gamma only; no gamma "
+            "was re-selected from these test results.",
+        ]
+    )
+    report = artifact_root / "REPORT_GAMMA025_CONFIRMATORY.md"
+    report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"[CONFIRM REPORT] {report}")
+    return report
 
 
 def phase_report(artifact_root: pathlib.Path) -> pathlib.Path:
@@ -467,7 +606,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "phase",
-        choices=("check", "smoke", "blend", "screen", "replicate", "report", "all"),
+        choices=(
+            "check",
+            "smoke",
+            "blend",
+            "screen",
+            "replicate",
+            "report",
+            "confirm-gamma025",
+            "confirm-report",
+            "confirm",
+            "all",
+        ),
     )
     parser.add_argument("--artifact-root", type=pathlib.Path, default=DEFAULT_ARTIFACT_ROOT)
     parser.add_argument("--dry-run", action="store_true")
@@ -476,7 +626,7 @@ def main() -> int:
 
     success = False
     try:
-        if args.phase in ("check", "all"):
+        if args.phase in ("check", "confirm", "all"):
             phase_check(args.artifact_root, dry_run=args.dry_run)
         if args.phase in ("smoke", "all"):
             phase_smoke(args.artifact_root, dry_run=args.dry_run)
@@ -488,6 +638,10 @@ def main() -> int:
             phase_replicate(args.artifact_root, dry_run=args.dry_run)
         if args.phase in ("report", "all") and not args.dry_run:
             phase_report(args.artifact_root)
+        if args.phase in ("confirm-gamma025", "confirm"):
+            phase_confirm_gamma025(args.artifact_root, dry_run=args.dry_run)
+        if args.phase in ("confirm-report", "confirm") and not args.dry_run:
+            phase_confirm_report(args.artifact_root)
         success = True
         return 0
     finally:

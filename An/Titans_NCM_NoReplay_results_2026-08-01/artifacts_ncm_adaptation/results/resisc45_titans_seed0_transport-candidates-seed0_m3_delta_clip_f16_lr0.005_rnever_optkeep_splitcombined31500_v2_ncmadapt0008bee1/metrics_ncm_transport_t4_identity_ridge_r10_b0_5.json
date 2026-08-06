@@ -1,0 +1,16 @@
+{
+  "readout": "ncm_transport_candidate_t4_identity_ridge_r10_b0_5",
+  "revisit_old_train": false,
+  "feature_protocol": "independent_image",
+  "prototype_loader": "prototype",
+  "average_accuracy": 0.711111111111111,
+  "average_forgetting": 0.13178571428571428,
+  "backward_transfer": -0.13142857142857142,
+  "candidate": {
+    "name": "identity_ridge_r10_b0.5",
+    "type": "identity_ridge",
+    "regularization": 10.0,
+    "beta": 0.5
+  },
+  "gamma": 1.0
+}

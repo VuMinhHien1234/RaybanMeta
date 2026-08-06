@@ -1,0 +1,70 @@
+{
+  "readout": "ncm_online_blend_gamma_1",
+  "revisit_old_train": false,
+  "feature_protocol": "independent_image",
+  "prototype_loader": "prototype",
+  "average_accuracy": 0.711111111111111,
+  "average_forgetting": 0.13178571428571428,
+  "backward_transfer": -0.13142857142857142,
+  "gamma": 1.0,
+  "transport": {
+    "enabled": true,
+    "type": "identity_ridge",
+    "regularization": 10.0,
+    "beta": 0.5,
+    "safety_gate": true,
+    "min_improvement": 0.0,
+    "max_condition": 1000000.0,
+    "screen_gamma": 1.0,
+    "candidates": [
+      {
+        "name": "translation_r0_b1",
+        "type": "translation",
+        "regularization": 0.0,
+        "beta": 1.0
+      },
+      {
+        "name": "diagonal_r10_b0.5",
+        "type": "diagonal",
+        "regularization": 10.0,
+        "beta": 0.5
+      },
+      {
+        "name": "procrustes_r0_b0.5",
+        "type": "procrustes",
+        "regularization": 0.0,
+        "beta": 0.5
+      },
+      {
+        "name": "identity_ridge_r1_b0.5",
+        "type": "identity_ridge",
+        "regularization": 1.0,
+        "beta": 0.5
+      },
+      {
+        "name": "identity_ridge_r10_b0.5",
+        "type": "identity_ridge",
+        "regularization": 10.0,
+        "beta": 0.5
+      },
+      {
+        "name": "identity_ridge_r100_b0.5",
+        "type": "identity_ridge",
+        "regularization": 100.0,
+        "beta": 0.5
+      },
+      {
+        "name": "identity_ridge_r10_b0.25",
+        "type": "identity_ridge",
+        "regularization": 10.0,
+        "beta": 0.25
+      },
+      {
+        "name": "identity_ridge_r10_b1",
+        "type": "identity_ridge",
+        "regularization": 10.0,
+        "beta": 1.0
+      }
+    ]
+  }
+}

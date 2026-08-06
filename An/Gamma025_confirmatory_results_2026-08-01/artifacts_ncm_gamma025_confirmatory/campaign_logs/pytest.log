@@ -1,0 +1,96 @@
+
+[2026-08-01 11:25:37] $ /usr/bin/python3 -m pytest -q
+........................................................................ [ 58%]
+....................................................                     [100%]
+=============================== warnings summary ===============================
+tests/test_g1_smoke.py: 52 warnings
+tests/test_g2_titans.py: 70 warnings
+tests/test_methods_g1.py: 52 warnings
+tests/test_ncm.py: 14 warnings
+tests/test_ncm_adaptation.py: 132 warnings
+tests/test_ncm_readouts.py: 144 warnings
+tests/test_opt_persist.py: 30 warnings
+  /usr/local/lib/python3.10/dist-packages/torch/utils/data/_utils/pin_memory.py:57: DeprecationWarning: The argument 'device' of Tensor.pin_memory() is deprecated. Please do not pass this argument. (Triggered internally at /pytorch/aten/src/ATen/native/Memory.cpp:46.)
+    return data.pin_memory(device)
+
+tests/test_g1_smoke.py: 52 warnings
+tests/test_g2_titans.py: 70 warnings
+tests/test_methods_g1.py: 52 warnings
+tests/test_ncm.py: 14 warnings
+tests/test_ncm_adaptation.py: 132 warnings
+tests/test_ncm_readouts.py: 144 warnings
+tests/test_opt_persist.py: 30 warnings
+  /usr/local/lib/python3.10/dist-packages/torch/utils/data/_utils/pin_memory.py:57: DeprecationWarning: The argument 'device' of Tensor.is_pinned() is deprecated. Please do not pass this argument. (Triggered internally at /pytorch/aten/src/ATen/native/Memory.cpp:31.)
+    return data.pin_memory(device)
+
+tests/test_m3.py::test_clip_mode_caps_update_without_forcing_matrix_rms
+  /home/an/RaybanMeta/uav-continual-learning/tests/test_m3.py:240: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+  Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+    assert float(clipped.norm()) <= 0.01 * (1.0 + 1e-5)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+124 passed, 989 warnings in 16.49s
+
+[2026-08-01 12:23:00] $ /usr/bin/python3 -m pytest -q
+........................................................................ [ 58%]
+....................................................                     [100%]
+=============================== warnings summary ===============================
+tests/test_g1_smoke.py: 52 warnings
+tests/test_g2_titans.py: 70 warnings
+tests/test_methods_g1.py: 52 warnings
+tests/test_ncm.py: 14 warnings
+tests/test_ncm_adaptation.py: 132 warnings
+tests/test_ncm_readouts.py: 144 warnings
+tests/test_opt_persist.py: 30 warnings
+  /usr/local/lib/python3.10/dist-packages/torch/utils/data/_utils/pin_memory.py:57: DeprecationWarning: The argument 'device' of Tensor.pin_memory() is deprecated. Please do not pass this argument. (Triggered internally at /pytorch/aten/src/ATen/native/Memory.cpp:46.)
+    return data.pin_memory(device)
+
+tests/test_g1_smoke.py: 52 warnings
+tests/test_g2_titans.py: 70 warnings
+tests/test_methods_g1.py: 52 warnings
+tests/test_ncm.py: 14 warnings
+tests/test_ncm_adaptation.py: 132 warnings
+tests/test_ncm_readouts.py: 144 warnings
+tests/test_opt_persist.py: 30 warnings
+  /usr/local/lib/python3.10/dist-packages/torch/utils/data/_utils/pin_memory.py:57: DeprecationWarning: The argument 'device' of Tensor.is_pinned() is deprecated. Please do not pass this argument. (Triggered internally at /pytorch/aten/src/ATen/native/Memory.cpp:31.)
+    return data.pin_memory(device)
+
+tests/test_m3.py::test_clip_mode_caps_update_without_forcing_matrix_rms
+  /home/an/RaybanMeta/uav-continual-learning/tests/test_m3.py:240: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+  Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+    assert float(clipped.norm()) <= 0.01 * (1.0 + 1e-5)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+124 passed, 989 warnings in 16.55s
+
+[2026-08-01 12:26:56] $ /usr/bin/python3 -m pytest -q
+........................................................................ [ 58%]
+....................................................                     [100%]
+=============================== warnings summary ===============================
+tests/test_g1_smoke.py: 52 warnings
+tests/test_g2_titans.py: 70 warnings
+tests/test_methods_g1.py: 52 warnings
+tests/test_ncm.py: 14 warnings
+tests/test_ncm_adaptation.py: 132 warnings
+tests/test_ncm_readouts.py: 144 warnings
+tests/test_opt_persist.py: 30 warnings
+  /usr/local/lib/python3.10/dist-packages/torch/utils/data/_utils/pin_memory.py:57: DeprecationWarning: The argument 'device' of Tensor.pin_memory() is deprecated. Please do not pass this argument. (Triggered internally at /pytorch/aten/src/ATen/native/Memory.cpp:46.)
+    return data.pin_memory(device)
+
+tests/test_g1_smoke.py: 52 warnings
+tests/test_g2_titans.py: 70 warnings
+tests/test_methods_g1.py: 52 warnings
+tests/test_ncm.py: 14 warnings
+tests/test_ncm_adaptation.py: 132 warnings
+tests/test_ncm_readouts.py: 144 warnings
+tests/test_opt_persist.py: 30 warnings
+  /usr/local/lib/python3.10/dist-packages/torch/utils/data/_utils/pin_memory.py:57: DeprecationWarning: The argument 'device' of Tensor.is_pinned() is deprecated. Please do not pass this argument. (Triggered internally at /pytorch/aten/src/ATen/native/Memory.cpp:31.)
+    return data.pin_memory(device)
+
+tests/test_m3.py::test_clip_mode_caps_update_without_forcing_matrix_rms
+  /home/an/RaybanMeta/uav-continual-learning/tests/test_m3.py:240: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+  Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+    assert float(clipped.norm()) <= 0.01 * (1.0 + 1e-5)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+124 passed, 989 warnings in 16.20s

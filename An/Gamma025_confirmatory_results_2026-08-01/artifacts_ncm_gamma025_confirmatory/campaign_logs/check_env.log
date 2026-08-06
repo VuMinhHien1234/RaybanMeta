@@ -1,0 +1,69 @@
+
+[2026-08-01 11:25:20] $ /usr/bin/python3 scripts/check_env.py
+== System ==
+  python  3.10.12  (Linux x86_64)
+== Core deps ==
+  [OK]   numpy            2.2.6
+  [OK]   yaml             6.0.3
+  [OK]   sklearn          1.7.2
+  [OK]   pandas           2.3.3
+  [OK]   tqdm             4.69.0
+  [OK]   matplotlib       3.10.9
+== ML deps ==
+  [OK]   torch            2.9.1+cu129
+  [OK]   torchvision      0.24.1+cu129
+  [OK]   timm             1.0.28
+  [OK]   titans_pytorch   titans_pytorch
+  [OK]   datasets         5.0.0
+== Device ==
+  torch 2.9.1+cu129 -> device: cuda
+== Package ==
+  [OK]   uavcl            0.0.1
+
+Done. If the rows above are [OK], you are ready for G1.
+
+[2026-08-01 12:22:50] $ /usr/bin/python3 scripts/check_env.py
+== System ==
+  python  3.10.12  (Linux x86_64)
+== Core deps ==
+  [OK]   numpy            2.2.6
+  [OK]   yaml             6.0.3
+  [OK]   sklearn          1.7.2
+  [OK]   pandas           2.3.3
+  [OK]   tqdm             4.69.0
+  [OK]   matplotlib       3.10.9
+== ML deps ==
+  [OK]   torch            2.9.1+cu129
+  [OK]   torchvision      0.24.1+cu129
+  [OK]   timm             1.0.28
+  [OK]   titans_pytorch   titans_pytorch
+  [OK]   datasets         5.0.0
+== Device ==
+  torch 2.9.1+cu129 -> device: cuda
+== Package ==
+  [OK]   uavcl            0.0.1
+
+Done. If the rows above are [OK], you are ready for G1.
+
+[2026-08-01 12:26:46] $ /usr/bin/python3 scripts/check_env.py
+== System ==
+  python  3.10.12  (Linux x86_64)
+== Core deps ==
+  [OK]   numpy            2.2.6
+  [OK]   yaml             6.0.3
+  [OK]   sklearn          1.7.2
+  [OK]   pandas           2.3.3
+  [OK]   tqdm             4.69.0
+  [OK]   matplotlib       3.10.9
+== ML deps ==
+  [OK]   torch            2.9.1+cu129
+  [OK]   torchvision      0.24.1+cu129
+  [OK]   timm             1.0.28
+  [OK]   titans_pytorch   titans_pytorch
+  [OK]   datasets         5.0.0
+== Device ==
+  torch 2.9.1+cu129 -> device: cuda
+== Package ==
+  [OK]   uavcl            0.0.1
+
+Done. If the rows above are [OK], you are ready for G1.

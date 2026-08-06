@@ -714,21 +714,21 @@ Báo cáo trong `RaybanMeta/An` phải trả lời rõ:
 
 ## 18. Thứ tự triển khai đề xuất
 
-- [ ] P0. Đóng băng baseline artifact và schema so sánh.
-- [ ] P1. Implement feature component API và one-forward training API.
-- [ ] P2. Unit/regression test endpoint gamma và state lifecycle.
-- [ ] P3. Implement multi-gamma Anchored Feature Blend.
-- [ ] P4. Implement no-replay audit và diagnostics cho blend.
-- [ ] P5. Chạy smoke và gamma sweep seed 0.
-- [ ] P6. Implement transport estimators, safety gate và checkpoint.
-- [ ] P7. Test synthetic transform, loader-access và resume.
-- [ ] P8. Chạy transport screening seed 0.
-- [ ] P9. Implement fixed-backbone feature distillation bằng một student forward.
-- [ ] P10. Test gradient/state lifecycle và chạy distillation screening seed 0.
-- [ ] P11. Chạy ablation A0-A5, khóa cấu hình bằng validation.
-- [ ] P12. Chạy 3 seed trên GCP Spot; mở rộng 5 seed nếu chênh lệch nhỏ.
-- [ ] P13. Tải và hậu kiểm artifact; dừng VM sau khi xác nhận dữ liệu local.
-- [ ] P14. Viết báo cáo cuối và khuyến nghị cấu hình production/research.
+- [x] P0. Đóng băng baseline artifact và schema so sánh.
+- [x] P1. Implement feature component API và one-forward training API.
+- [x] P2. Unit/regression test endpoint gamma và state lifecycle.
+- [x] P3. Implement multi-gamma Anchored Feature Blend.
+- [x] P4. Implement no-replay audit và diagnostics cho blend.
+- [x] P5. Chạy smoke và gamma sweep seed 0.
+- [x] P6. Implement transport estimators, safety gate và checkpoint.
+- [x] P7. Test synthetic transform, loader-access và resume.
+- [x] P8. Chạy transport screening seed 0.
+- [x] P9. Implement fixed-backbone feature distillation bằng một student forward.
+- [x] P10. Test gradient/state lifecycle và chạy distillation screening seed 0.
+- [x] P11. Chạy ablation A0-A5, khóa cấu hình bằng validation.
+- [x] P12. Chạy 3 seed trên GCP Spot; không mở rộng 5 seed vì full combination thua baseline 2.16 điểm phần trăm.
+- [x] P13. Tải và hậu kiểm artifact; dừng VM sau khi xác nhận dữ liệu local.
+- [x] P14. Viết báo cáo cuối và khuyến nghị cấu hình production/research.
 
 ---
 

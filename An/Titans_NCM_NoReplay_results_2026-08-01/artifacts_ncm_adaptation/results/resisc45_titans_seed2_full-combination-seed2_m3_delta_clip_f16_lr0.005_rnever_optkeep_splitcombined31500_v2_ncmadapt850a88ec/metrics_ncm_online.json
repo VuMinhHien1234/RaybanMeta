@@ -1,0 +1,9 @@
+{
+  "readout": "ncm_online_current_task",
+  "revisit_old_train": false,
+  "feature_protocol": "independent_image",
+  "prototype_loader": "prototype",
+  "average_accuracy": 0.7006349206349207,
+  "average_forgetting": 0.1582142857142857,
+  "backward_transfer": -0.15535714285714286
+}

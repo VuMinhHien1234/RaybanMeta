@@ -1,0 +1,91 @@
+seed: 0
+device: auto
+data:
+  name: resisc45
+  hf_repo: timm/resisc45
+  root: ./data
+  split_protocol: combined31500_v2
+  expected_total_samples: 31500
+  expected_samples_per_class: 700
+  num_tasks: 9
+  shuffle_classes: true
+  image_size: 224
+  batch_size: 32
+  eval_batch_size: 8
+  prototype_batch_size: 8
+  num_workers: 2
+backbone:
+  name: vit_small_patch16_224
+  pretrained: true
+  freeze: true
+memory:
+  enabled: true
+  dim: auto
+  chunk_size: 32
+  seq: image_seq
+  reset: never
+  gated_transition: true
+  spectral_norm_surprises: true
+  qk_rmsnorm: true
+  max_grad_norm: 1.0
+  depth: 3
+  heads: 1
+  self_modifying: true
+  self_modifying_readpath: false
+train:
+  method: titans
+  optimizer: m3
+  epochs_per_task: 3
+  lr: 0.005
+  weight_decay: 0.01
+  grad_clip_norm: 1.0
+  optimizer_per_task: false
+  eval_future: false
+  eval_feature_protocol: independent_image
+  max_state_norm: 10000.0
+  max_state_norm_growth: 10.0
+  feature_distillation:
+    enabled: false
+    teacher: frozen_backbone
+    weight: 0.05
+    loss: cosine
+  ncm:
+    enabled: true
+    readouts:
+    - online_current_task
+    feature_protocol: independent_image
+    prototype_transform: eval
+    fail_on_nonfinite: true
+    save_state: true
+    blend:
+      enabled: true
+      gammas:
+      - 0.0
+      - 0.1
+      - 0.25
+      - 0.5
+      - 0.75
+      - 1.0
+    transport:
+      enabled: false
+      type: identity_ridge
+      regularization: 10.0
+      beta: 0.5
+      safety_gate: true
+      min_improvement: 0.0
+      max_condition: 1000000.0
+  m3:
+    alpha: 0.5
+    frequency: 16
+    beta_style: delta
+    update_norm: clip
+    delta:
+      alpha:
+      - 0.999
+      - 0.9999
+      eta:
+      - 0.1
+      - 0.05
+log:
+  dir: artifacts_ncm_adaptation
+  run_tag: blend-screen-seed0

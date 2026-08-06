@@ -1,0 +1,16 @@
+{
+  "readout": "ncm_transport_candidate_t0_translation",
+  "revisit_old_train": false,
+  "feature_protocol": "independent_image",
+  "prototype_loader": "prototype",
+  "average_accuracy": 1.0,
+  "average_forgetting": 0.0,
+  "backward_transfer": 0.0,
+  "candidate": {
+    "name": "translation",
+    "type": "translation",
+    "regularization": 0.0,
+    "beta": 1.0
+  },
+  "gamma": 0.5
+}

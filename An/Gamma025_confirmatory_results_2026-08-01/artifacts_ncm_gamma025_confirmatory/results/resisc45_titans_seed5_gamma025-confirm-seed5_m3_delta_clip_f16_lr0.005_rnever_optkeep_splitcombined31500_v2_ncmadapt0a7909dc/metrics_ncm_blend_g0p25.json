@@ -1,0 +1,21 @@
+{
+  "readout": "ncm_online_blend_gamma_0.25",
+  "revisit_old_train": false,
+  "feature_protocol": "independent_image",
+  "prototype_loader": "prototype",
+  "average_accuracy": 0.719047619047619,
+  "average_forgetting": 0.0857142857142857,
+  "backward_transfer": -0.0857142857142857,
+  "gamma": 0.25,
+  "transport": {
+    "enabled": false,
+    "type": "identity_ridge",
+    "regularization": 10.0,
+    "beta": 0.5,
+    "safety_gate": true,
+    "min_improvement": 0.0,
+    "max_condition": 1000000.0,
+    "screen_gamma": 0.25,
+    "candidates": []
+  }
+}

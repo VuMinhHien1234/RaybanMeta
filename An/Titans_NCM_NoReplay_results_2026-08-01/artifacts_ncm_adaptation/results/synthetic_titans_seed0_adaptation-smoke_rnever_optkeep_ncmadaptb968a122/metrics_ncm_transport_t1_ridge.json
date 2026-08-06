@@ -1,0 +1,16 @@
+{
+  "readout": "ncm_transport_candidate_t1_ridge",
+  "revisit_old_train": false,
+  "feature_protocol": "independent_image",
+  "prototype_loader": "prototype",
+  "average_accuracy": 0.5,
+  "average_forgetting": 0.75,
+  "backward_transfer": -0.75,
+  "candidate": {
+    "name": "ridge",
+    "type": "identity_ridge",
+    "regularization": 1.0,
+    "beta": 0.5
+  },
+  "gamma": 0.5
+}

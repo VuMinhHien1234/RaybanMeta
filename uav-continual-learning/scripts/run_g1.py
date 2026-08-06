@@ -98,12 +98,21 @@ def result_is_complete(out: pathlib.Path, cfg: dict) -> bool:
             readouts = [readouts]
         expected = []
         if "online_current_task" in readouts:
-            expected.extend(("metrics_ncm_online.json", "acc_matrix_ncm_online.csv"))
             blend_cfg = ncm_cfg.get("blend", {}) or {}
-            if blend_cfg.get("enabled"):
+            blend_enabled = bool(blend_cfg.get("enabled"))
+            blend_gammas = [
+                float(gamma) for gamma in blend_cfg.get("gammas", [1.0])
+            ]
+            # The historical online alias represents the pure Titans endpoint.
+            # A confirmatory anchored-only run can intentionally omit gamma=1.
+            if not blend_enabled or 1.0 in blend_gammas:
+                expected.extend(
+                    ("metrics_ncm_online.json", "acc_matrix_ncm_online.csv")
+                )
+            if blend_enabled:
                 from uavcl.models.ncm_adaptation import gamma_key
 
-                for gamma in blend_cfg.get("gammas", [1.0]):
+                for gamma in blend_gammas:
                     key = gamma_key(float(gamma))
                     expected.extend(
                         (

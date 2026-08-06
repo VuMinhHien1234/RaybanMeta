@@ -1,0 +1,23 @@
+{
+  "selection_protocol": "mean current-task validation; no old validation/test revisit",
+  "blend_validation_scores": {
+    "0.0": 0.797460310988956,
+    "0.1": 0.799999992052714,
+    "0.25": 0.8076190286212497,
+    "0.5": 0.8238095111317105,
+    "0.75": 0.840317447980245,
+    "1.0": 0.8549206256866455
+  },
+  "overall_gamma": 1.0,
+  "experimental_gamma": 1.0,
+  "transport": {
+    "type": "diagonal",
+    "regularization": 10.0,
+    "beta": 0.5,
+    "validation_score": 0.8476190434561836,
+    "mean_gate_improvement": 0.00528194842627272,
+    "accepted_tasks": 8
+  },
+  "distillation_weight": 0.1,
+  "distillation_validation_score": 0.8568253848287795
+}

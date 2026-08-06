@@ -1,0 +1,34 @@
+{
+  "readout": "ncm_online_blend_gamma_0",
+  "revisit_old_train": false,
+  "feature_protocol": "independent_image",
+  "prototype_loader": "prototype",
+  "average_accuracy": 1.0,
+  "average_forgetting": 0.0,
+  "backward_transfer": 0.0,
+  "gamma": 0.0,
+  "transport": {
+    "enabled": true,
+    "type": "identity_ridge",
+    "regularization": 1.0,
+    "beta": 0.5,
+    "safety_gate": true,
+    "min_improvement": 0.0,
+    "max_condition": 1000000.0,
+    "screen_gamma": 0.5,
+    "candidates": [
+      {
+        "name": "translation",
+        "type": "translation",
+        "regularization": 0.0,
+        "beta": 1.0
+      },
+      {
+        "name": "ridge",
+        "type": "identity_ridge",
+        "regularization": 1.0,
+        "beta": 0.5
+      }
+    ]
+  }
+}

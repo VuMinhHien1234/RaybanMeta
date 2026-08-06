@@ -1,0 +1,66 @@
+
+[2026-07-31 15:45:47] $ /usr/bin/python3 /home/an/RaybanMeta/uav-continual-learning/scripts/run_g1.py --config /home/an/RaybanMeta/uav-continual-learning/configs/g2_titans_ncm_adaptation_smoke.yaml --method titans --skip-existing --set log.dir=artifacts_ncm_adaptation log.run_tag=adaptation-smoke
+== G1 run: dataset=synthetic method=titans seed=0 device=cuda
+task 0: 2 classes [class_2, class_4] | train 16 / val 8 / test 8
+task 1: 2 classes [class_0, class_1] | train 16 / val 8 / test 8
+task 2: 2 classes [class_3, class_5] | train 16 / val 8 / test 8
+[titans] seq=image_seq reset=never chunk=8
+[task 0] classes=[2, 4] | train=16
+
+  epoch 1/1:   0%|          | 0/2 [00:00<?, ?it/s]
+  epoch 1/1:   0%|          | 0/2 [00:03<?, ?it/s, loss=0.930]
+  epoch 1/1:  50%|█████     | 1/2 [00:03<00:03,  3.21s/it, loss=0.930]
+  epoch 1/1:  50%|█████     | 1/2 [00:03<00:03,  3.21s/it, loss=0.824]
+                                                                      
+[titans] reset=never | norm(state) sau task = 55.1147
+[titans]   eta_t(avg)=0.7641  alpha_t/forget-gate(avg)=0.5600
+[task 0] test acc so far: 0.500
+[task 0] NCM-blend gamma=0: 1.000
+[task 0] NCM-blend gamma=0.5: 1.000
+[task 0] NCM-blend gamma=1: 1.000
+[checkpoint] đã lưu tiến độ sau task 0
+[task 1] classes=[0, 1] | train=16
+
+  epoch 1/1:   0%|          | 0/2 [00:00<?, ?it/s]
+  epoch 1/1:   0%|          | 0/2 [00:00<?, ?it/s, loss=0.779]
+  epoch 1/1:   0%|          | 0/2 [00:00<?, ?it/s, loss=0.786]
+                                                              
+[titans] reset=never | norm(state) sau task = 83.6864
+[titans]   eta_t(avg)=0.4335  alpha_t/forget-gate(avg)=0.5588
+[task 1] test acc so far: 0.500  0.000
+[task 1] NCM-blend gamma=0: 1.000  1.000
+[task 1] NCM-blend gamma=0.5: 1.000  1.000
+[task 1] NCM-blend gamma=1: 0.000  1.000
+[checkpoint] đã lưu tiến độ sau task 1
+[task 2] classes=[3, 5] | train=16
+
+  epoch 1/1:   0%|          | 0/2 [00:00<?, ?it/s]
+  epoch 1/1:   0%|          | 0/2 [00:00<?, ?it/s, loss=1.141]
+  epoch 1/1:   0%|          | 0/2 [00:00<?, ?it/s, loss=1.066]
+                                                              
+[titans] reset=never | norm(state) sau task = 100.7047
+[titans]   eta_t(avg)=0.4677  alpha_t/forget-gate(avg)=0.5575
+[task 2] test acc so far: 0.500  0.000  0.000
+[task 2] NCM-blend gamma=0: 1.000  1.000  1.000
+[task 2] NCM-blend gamma=0.5: 0.000  0.500  1.000
+[task 2] NCM-blend gamma=1: 0.000  0.000  1.000
+[checkpoint] đã lưu tiến độ sau task 2
+  memory_state.pt đã lưu (norm=100.7047)
+
+== Ma trận accuracy (hàng = sau khi học task i, cột = đánh giá task j)
+[[0.5 0.  0. ]
+ [0.5 0.  0. ]
+ [0.5 0.  0. ]]
+
+== Kết quả
+  Average Accuracy   : 0.1667  (cao = tốt)
+  Average Forgetting : 0.0000  (thấp = tốt — con số dự án cần giảm)
+  Backward Transfer  : 0.0000  (âm = quên)
+
+== NCM feature readouts
+  Linear              : Acc 0.1667 | Forget 0.0000
+  NCM online          : Acc 0.3333 | Forget 1.0000
+  NCM blend 0       : Acc 1.0000 | Forget 0.0000
+  NCM blend 0.5       : Acc 0.5000 | Forget 0.7500
+  checkpoint.pt đã lưu (model + Titans state + online NCM)
+  Saved -> artifacts_ncm_adaptation/results/synthetic_titans_seed0_adaptation-smoke_rnever_optkeep_ncmadaptb968a122
