@@ -270,30 +270,35 @@ def run_continual(
             old_model_sdc = copy.deepcopy(model).eval()   # ↳ Bản sao đóng băng = "model cũ".
             for p in old_model_sdc.parameters():
                 p.requires_grad_(False)
-        if getattr(method, "gradient_free", False): # ↳ NCM: không train bằng gradient.
-            # ---- P1 (KE_HOACH_SUA 2026-08-04): PHA 2 KHÔNG NHÃN -------------------------
-            # Bài toán gốc (BAI_TOAN §2/§3): nhãn CHỈ có ở pha hiệu chỉnh. Trước bản vá
-            # này, fit_task nhận (x, y) CÓ NHÃN ở MỌI chuyến — giải một bài dễ hơn bài thật.
-            # Bật `pha2.khong_nhan`: từ chuyến `chuyen_hieu_chinh` trở đi KHÔNG gọi
-            # fit_task; model nào có `hap_thu_khong_nhan` thì tự cập nhật các tầng không
-            # nhãn (và trả chuỗi prequential nuôi O2); không có -> đóng băng (mốc U0).
-            # Mặc định TẮT -> mọi run cũ đi đúng đường cũ, bất biến.
-            _p2 = dict(train_cfg.get("pha2") or {})
-            _khong_nhan = bool(_p2.get("khong_nhan", False))
-            _chuyen_hc = int(_p2.get("chuyen_hieu_chinh", 1))
-            if _khong_nhan and t >= _chuyen_hc:
-                if hasattr(model, "hap_thu_khong_nhan"):
-                    _allowed_preq = sorted(set(seen) | set(allowed_train))
-                    log.setdefault("trace", {})[t] = model.hap_thu_khong_nhan(
-                        task_loaders[t]["train"], device, allowed=_allowed_preq)
-                elif verbose:
-                    print(f"[pha2] chuyến {t}: KHÔNG nhãn, model không có tầng không nhãn "
-                          "-> đóng băng hoàn toàn (mốc U0)")
-            else:
-                # NCM/SLDA pha 1 (hoặc chế độ cũ): "hấp thụ" dữ liệu task CÓ nhãn.
-                method.fit_task(model, task_loaders[t]["train"], device)  # ↳ Chỉ cập nhật prototype.
-            if _khong_nhan and t == _chuyen_hc - 1 and hasattr(model, "chot_moc_pha1"):
-                model.chot_moc_pha1()       # ↳ cuối pha hiệu chỉnh: đóng băng mốc (m0, v0)
+        # ---- P1 (KE_HOACH_SUA 2026-08-04) + P4 (2026-08-09): PHA 2 KHÔNG NHÃN -----------
+        # Bài toán gốc (BAI_TOAN §2/§3): nhãn CHỈ có ở pha hiệu chỉnh. Trước bản vá
+        # này, fit_task nhận (x, y) CÓ NHÃN ở MỌI chuyến — giải một bài dễ hơn bài thật.
+        # Bật `pha2.khong_nhan`: từ chuyến `chuyen_hieu_chinh` trở đi KHÔNG dùng nhãn;
+        # model nào có `hap_thu_khong_nhan` thì tự cập nhật các tầng không nhãn (và trả
+        # chuỗi prequential nuôi O2); không có -> đóng băng (mốc U0).
+        #
+        # P4 (2026-08-09) — NHẤC CỬA PHA 2 RA NGOÀI nhánh `gradient_free`. Vì sao: trước
+        # đây cửa này nằm TRONG nhánh đó, mà TitansCL/HOPE có gradient_free=False, nên
+        # chúng rơi thẳng vào train_one_task và NHẬN NHÃN ở cả 12 chuyến — trong khi
+        # U0/U1/U2 chỉ có nhãn ở chuyến 0. Phép so khi đó vô hiệu vì hai bên giải hai
+        # bài toán khác nhau. Nay pha 2 áp cho MỌI method.
+        # Mặc định TẮT -> mọi run cũ (khong_nhan=false HOẶC gradient_free=true) bất biến.
+        _p2 = dict(train_cfg.get("pha2") or {})
+        _khong_nhan = bool(_p2.get("khong_nhan", False))
+        _chuyen_hc = int(_p2.get("chuyen_hieu_chinh", 1))
+        _la_pha2 = _khong_nhan and t >= _chuyen_hc
+
+        if _la_pha2:
+            if hasattr(model, "hap_thu_khong_nhan"):
+                _allowed_preq = sorted(set(seen) | set(allowed_train))
+                log.setdefault("trace", {})[t] = model.hap_thu_khong_nhan(
+                    task_loaders[t]["train"], device, allowed=_allowed_preq)
+            elif verbose:
+                print(f"[pha2] chuyến {t}: KHÔNG nhãn, model không có tầng không nhãn "
+                      "-> đóng băng hoàn toàn (mốc U0)")
+            log["train_loss"][t] = []
+        elif getattr(method, "gradient_free", False):  # ↳ NCM/SLDA pha 1: hấp thụ CÓ nhãn.
+            method.fit_task(model, task_loaders[t]["train"], device)  # ↳ Chỉ cập nhật prototype.
             log["train_loss"][t] = []
         else:
             losses, opt_used = train_one_task(
@@ -303,11 +308,21 @@ def run_continual(
             if persist_opt:
                 opt_carry = opt_used                # ↳ Nhớ optimizer để task sau dùng tiếp.
             log["train_loss"][t] = losses
+
+        if _khong_nhan and t == _chuyen_hc - 1 and hasattr(model, "chot_moc_pha1"):
+            model.chot_moc_pha1()       # ↳ cuối pha hiệu chỉnh: đóng băng mốc (m0, v0)
         method.end_task(model, task_loaders[t]["train"], device, allowed_train)  # ↳ Móc "sau task" (EWC tính Fisher, log norm...).
 
         seen += list(allowed_train)                 # ↳ Cập nhật danh sách class đã học.
         allowed_eval = sorted(seen)                 # ↳ Khi đánh giá, cho phép mọi class ĐÃ học.
-        for j in range(t + 1):                      # ↳ Chấm điểm lại toàn bộ task 0..t.
+        # (2026-08-09) Với stream revisit, MỌI thước đo (O1 `acc_hien_tai`, O3
+        # `loi_ich_quay_lai`) chỉ đọc ĐƯỜNG CHÉO R[t][t]; O2/O3-preq lấy từ log["trace"].
+        # Mà `pha2.test_chung=true` khiến mỗi lượt eval = TOÀN BỘ tập test, nên tam giác
+        # dưới tốn 66/78 lượt (12 chuyến) mà không ai đọc -> 6h/run. Cờ này bỏ chúng đi.
+        # Mặc định TẮT -> run cũ bất biến. Khi BẬT, average_accuracy/AAA/forgetting/BWT
+        # mất nghĩa (tam giác dưới = 0) — run_g1 ghi null cho chúng.
+        _chi_cheo = bool(train_cfg.get("eval_chi_duong_cheo", False))
+        for j in ([t] if _chi_cheo else range(t + 1)):   # ↳ Chấm điểm lại task 0..t (hoặc chỉ t).
             R[t, j] = evaluate(model, task_loaders[j]["test"], device, allowed_eval)
         # (tùy chọn) đo Forward Transfer: đánh giá task KẾ TIẾP trước khi học nó.
         # Lưu ý: với head khởi tạo mới, FWT thường ~ mức đoán mò — có ý nghĩa hơn từ G2+.
@@ -315,8 +330,9 @@ def run_continual(
             allowed_next = sorted(set(seen) | set(stream[t + 1].classes))
             R[t, t + 1] = evaluate(model, task_loaders[t + 1]["test"], device, allowed_next)  # ↳ Điền ô tam giác trên (FWT).
         if verbose:
-            row = "  ".join(f"{R[t, j]:.3f}" for j in range(t + 1))
-            print(f"[task {t}] test acc so far: {row}")
+            row = "  ".join(f"{R[t, j]:.3f}" for j in ([t] if _chi_cheo else range(t + 1)))
+            print(f"[task {t}] test acc so far: {row}"
+                  + ("  (chỉ đường chéo)" if _chi_cheo else ""))
 
         # ĐÒN A: NCM-head shadow eval (song song head Linear) — chỉ khi bật cờ + model có features().
         if want_ncm and hasattr(model, "features") and hasattr(model, "head"):

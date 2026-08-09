@@ -386,6 +386,10 @@ class HOPE(CMS):
         if hasattr(model, "state_norm"):
             print(f"[hope] reset={model.reset_mode} | norm(state) sau task = {model.state_norm():.4f}")
             # ↳ Con số norm(state) này chính là thứ đã lộ ra bệnh (262->302->120... Forgetting 0.956).
+        # (2026-08-09) HOPE kế thừa CMS nên KHÔNG có khối chẩn đoán η/α của TitansCL —
+        # chạy `--method hope` là mất hẳn cảnh báo cổng bão hoà, tức mù đúng cơ chế cốt lõi
+        # (Eq 76). Mượn lại nguyên khối đó. Nó in thêm norm(state) một lần nữa (chấp nhận).
+        TitansCL.end_task(self, model, loader, device, allowed)
 
     def footprint_floats(self, model) -> int:
         return int(model.extra_floats()) if hasattr(model, "extra_floats") else 0

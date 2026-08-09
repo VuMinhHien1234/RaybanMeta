@@ -1,0 +1,105 @@
+# U3 — HOPE (Titans + CMS + M3) trên ĐÚNG bài toán UAV (2026-08-09).
+#
+# Vì sao có file này: mọi run Titans/HOPE trước đây chạy ở sân class-incremental, CÓ nhãn
+# ở mọi task -> KHÔNG so được với U0/U1/U2 (nhãn chỉ ở chuyến 0). File này đặt HOPE vào
+# ĐÚNG stream bay lặp lại, ĐÚNG luật nhãn, CÙNG lịch bay, CÙNG seed -> phép so MỘT BIẾN:
+# biến duy nhất là KIẾN TRÚC (Nested Learning đầy đủ vs công thức đóng ba tầng).
+#
+# Cần patch P4 (engine.py nhấc cửa pha 2 ra ngoài nhánh gradient_free) +
+#      TitansClassifier.hap_thu_khong_nhan(). Thiếu -> log sẽ in "đóng băng hoàn toàn".
+#
+# Ba đóng góp NL đều BẬT:  (1) M3 optimizer · (2) self_modifying Eq 76-82 · (3) CMS Eq 70-71
+seed: 0
+device: auto
+
+data:
+  name: resisc45
+  hf_repo: timm/resisc45
+  root: ./data
+  split_protocol: combined31500_v2
+  expected_total_samples: 31500
+  expected_samples_per_class: 700
+  num_tasks: 12
+  shuffle_classes: false
+  image_size: 224
+  batch_size: 32
+  num_workers: 2
+  stream_type: revisit          # bay lặp lại — điều kiện QUAY LẠI
+  pha2:
+    khong_nhan: true            # từ chuyến 1: KHÔNG nhãn (y chỉ dùng chấm prequential)
+    chuyen_hieu_chinh: 1        # chuyến 0 = pha 1 CÓ nhãn, offline
+    test_chung: true            # mọi chuyến chấm trên CÙNG tập test đầy đủ
+    thu_tu_thoi_gian: true      # chuyến pha 2 là DÒNG thời gian, không xáo trộn
+  drift:
+    enabled: true
+    che_do: tuan_hoan
+    chu_ky: 4                   # chuyến 5 lặp lại điều kiện chuyến 1
+    n_mode: 3
+    mode: linear
+    severity: 1.0
+    jitter: 0.15
+    trong_chuyen:
+      enabled: true
+      bien_do: 0.25             # điều kiện đổi DẦN bên trong chuyến (yêu cầu c)
+    apply_to: [train, val, test]
+
+backbone:
+  name: vit_small_patch16_224
+  pretrained: true
+  freeze: true                  # HOPEClassifier sẽ MỞ BĂNG lại; CMS điều tiết nhịp update
+
+head: cosine                    # chống recency bias — đo được +15,6 điểm (campaign 01-08)
+
+memory:
+  enabled: true
+  dim: auto                     # = 384
+  chunk_size: 32
+  seq: image_seq                # mỗi ảnh = 1 bước thời gian
+  reset: never                  # ⭐ ký ức sống XUYÊN chuyến — đích của G2
+  depth: 3
+  heads: 1
+  self_modifying: true          # NL đóng góp (2) — Eq 76-82
+  self_modifying_readpath: false
+  gated_transition: true
+  spectral_norm_surprises: true
+  qk_rmsnorm: true
+  max_grad_norm: 1.0
+  pre_norm: true                # chuẩn hoá TRƯỚC memory — chống bão hoà cổng
+  post_norm: true               # GIỮ BẬT: ablation n1 cho thấy tắt làm head Linear sập
+                                # (norm(state) 62->292, acc 0.61->0.27)
+  gate_bound:                    # chặn cổng η/α trôi ra biên — Eq 76 phải sống
+    alpha_logit_limit: 2.9444    # α ∈ [0.05, 0.95]
+    eta_logit_limit: 2.1972      # η ∈ [0.10, 0.90]  (max_lr THẬT = 1.0)
+    alpha_logit_center: 0.0
+    eta_logit_center: 0.0
+  init_decay_bias: 0.0           # α khởi đầu 0.5 — trung tính
+  init_adaptive_step_bias: 0.0   # η khởi đầu 0.5
+
+cms:                             # ⭐ TOP-LEVEL: run_g1.py:189 đọc CHỖ NÀY để dựng HOPEClassifier.
+  enabled: true                  # Đặt dưới `train:` thì CMSOptimizer chạy nhưng model vẫn là
+  m3_frequency_unit: global_step # Titans-đóng-băng -> tier mid/slow RỖNG -> ‖Δw‖ = 0 (bệnh cũ).
+  grad_agg: sum                  # nguyên văn Eq 71
+  eta_mode: fixed                # 'adaptive' để dành ablation S9
+
+train:
+  method: hope
+  optimizer: m3                  # NL đóng góp (1) — Algorithm 1 §7.2
+  epochs_per_task: 20            # pha 1 = CHỈ chuyến 0 (~1600 mẫu). BAI_TOAN §2: pha 1
+                                 # KHÔNG giới hạn tính toán -> train kỹ là hợp lệ, và CẦN
+                                 # vì head khởi tạo mới (D11: Titans khởi đầu 0.051).
+  lr: 0.001
+  weight_decay: 0.01
+  grad_clip_norm: 1.0
+  optimizer_per_task: false      # ký ức gradient M3 + pha chu kỳ CMS sống xuyên chuyến
+  eval_chi_duong_cheo: true      # O1/O2/O3 chỉ đọc đường chéo -> bỏ 66/78 lượt eval
+  m3:
+    alpha: 0.5
+    frequency: 16
+    beta_style: delta
+    update_norm: clip
+    delta:
+      alpha: [0.999, 0.9999]
+      eta:   [0.1, 0.05]
+
+log:
+  dir: ./artifacts_revisit_U3_hope

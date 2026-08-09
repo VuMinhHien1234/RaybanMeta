@@ -246,6 +246,7 @@ def main() -> int:
     if cms_cfg.get("enabled", False):
         cfg["train"]["cms"] = cms_cfg  # engine đọc từ train_cfg -> dùng CMSOptimizer (G3)
     R, log = run_continual(model, method, stream, loaders, device, cfg["train"])
+    _chi_cheo = bool(cfg["train"].get("eval_chi_duong_cheo", False))  # ↳ tam giác dưới không đo
 
     # --- metrics + save ---
     metrics = {
@@ -257,10 +258,13 @@ def main() -> int:
         "head": head_kind,
         "optimizer": str(cfg["train"].get("optimizer", "adamw")).lower(),
         "optimizer_per_task": bool(cfg["train"].get("optimizer_per_task", True)),
-        "average_accuracy": average_accuracy(R),
-        "average_anytime_accuracy": average_anytime_accuracy(R),  # #24: quan trọng cho regime streaming
-        "average_forgetting": average_forgetting(R),
-        "backward_transfer": backward_transfer(R),
+        # train.eval_chi_duong_cheo=true -> tam giác dưới của R KHÔNG được đo (toàn 0), nên
+        # 4 chỉ số dưới đây MẤT NGHĨA. Ghi null thay vì số rác, kẻo về sau đọc nhầm.
+        # Track revisit dùng O1/O2/O3 trong metrics_revisit.json, không dùng 4 cái này.
+        "average_accuracy": None if _chi_cheo else average_accuracy(R),
+        "average_anytime_accuracy": None if _chi_cheo else average_anytime_accuracy(R),
+        "average_forgetting": None if _chi_cheo else average_forgetting(R),
+        "backward_transfer": None if _chi_cheo else backward_transfer(R),
         # FWT chỉ có nghĩa khi bật train.eval_future (đo acc task kế tiếp TRƯỚC khi học)
         "forward_transfer": forward_transfer(R) if cfg["train"].get("eval_future", False) else None,
         # chi phí — so cùng accuracy thì method rẻ hơn thắng:
@@ -391,9 +395,14 @@ def main() -> int:
         (out / "metrics_revisit.json").write_text(json.dumps(rv, indent=2), encoding="utf-8")
 
     print("\n== Kết quả")
-    print(f"  Average Accuracy   : {metrics['average_accuracy']:.4f}  (cao = tốt)")
-    print(f"  Average Forgetting : {metrics['average_forgetting']:.4f}  (thấp = tốt — con số dự án cần giảm)")
-    print(f"  Backward Transfer  : {metrics['backward_transfer']:.4f}  (âm = quên)")
+    if _chi_cheo:
+        # eval_chi_duong_cheo: tam giác dưới KHÔNG đo -> 3 chỉ số này vô nghĩa, đã ghi null.
+        print("  (train.eval_chi_duong_cheo=true — Average Accuracy / Forgetting / BWT không đo;")
+        print("   dùng O1/O2/O3 trong metrics_revisit.json)")
+    else:
+        print(f"  Average Accuracy   : {metrics['average_accuracy']:.4f}  (cao = tốt)")
+        print(f"  Average Forgetting : {metrics['average_forgetting']:.4f}  (thấp = tốt — con số dự án cần giảm)")
+        print(f"  Backward Transfer  : {metrics['backward_transfer']:.4f}  (âm = quên)")
 
     # ĐÒN A: nếu bật train.eval_ncm_head, log có ma trận NCM-head -> tính + lưu + so sánh.
     if "ncm_R" in log:

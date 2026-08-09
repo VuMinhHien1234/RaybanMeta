@@ -28,7 +28,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from .classifier import build_head
+from .classifier import build_head, mask_logits
 from .memory import TitansMemory
 from .seq_adapter import SeqAdapter
 from .state_utils import clone_state, count_floats, detach_state, state_norm, state_to_cpu
@@ -207,6 +207,38 @@ class TitansClassifier(nn.Module):
     def forward_from_feats(self, feats: torch.Tensor) -> torch.Tensor:
         """Logits từ feature-sau-backbone đã lưu (latent replay #22): bỏ qua backbone."""
         return self.head(self.features_from_extracted(feats))
+
+    # =================== PHA 2 — DÒNG KHÔNG NHÃN (P4, 2026-08-09) ======================
+    @torch.no_grad()
+    def hap_thu_khong_nhan(self, loader, device, allowed=None) -> list:
+        """Pha 2 của bài toán gốc (BAI_TOAN §2/§3): dòng dữ liệu KHÔNG nhãn, trực tuyến.
+
+        Titans tự ghi ký ức NGAY TRONG FORWARD (test-time learning, Eq 76-82) nên nó
+        KHÔNG cần nhãn và KHÔNG cần gradient để hấp thụ — đây chính là chỗ cơ chế của
+        paper dùng được cho bài toán này. Nhờ vậy HOPE so được CÙNG LUẬT với U0/U1/U2.
+
+        Prequential (test-then-train): mỗi batch DỰ ĐOÁN trước bằng state hiện có, RỒI
+        mới cho memory hấp thụ. Đúng nghĩa "trả lời ŷ_t trước khi thấy x_{t+1}", và chuỗi
+        trả về nuôi thước đo O2 (thời gian hồi phục) + O3-preq10.
+
+        LUẬT NHÃN: `y` CHỈ dùng để chấm prequential — cùng nguyên tắc với `mode_that`.
+        Không một giá trị y nào chạm vào việc ghi ký ức (bước 2 chỉ nhận `x`).
+        """
+        accs: list = []
+        for x, y in loader:
+            x = x.to(device)
+            # 1) DỰ ĐOÁN TRƯỚC — eval: đọc BẢN SAO state, KHÔNG ghi (LUẬT 2 vòng đời state)
+            self.eval()
+            logits = self(x)
+            if allowed is not None:
+                logits = mask_logits(logits, allowed)
+            accs.append(float((logits.argmax(dim=1).cpu() == y).float().mean()))
+            # 2) RỒI MỚI GHI — train mode bật đường ghi state; @torch.no_grad nên KHÔNG có
+            #    gradient, tham số model đứng yên. Chỉ "cục ký ức" _state thay đổi.
+            self.train()
+            self.features(x)
+        self.eval()
+        return accs
 
     # ------------------------------------------------------- state lifecycle
     def reset_state(self) -> None:
